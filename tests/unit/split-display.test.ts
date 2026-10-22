@@ -18,6 +18,7 @@ import {
   transfersForViewer,
 } from "@/lib/split-display";
 import { parseAmountInput } from "@/lib/parse-amount";
+import { computeShares } from "@/lib/split-math";
 
 describe("initialsOf", () => {
   it("takes the first and last word's first letters", () => {
@@ -30,41 +31,98 @@ describe("initialsOf", () => {
 });
 
 describe("myPart", () => {
-  const expense = (payer: string, total: number, mine: number | null) => ({
+  /** One payer; `split` is who's in it, equally. */
+  const expense = (payer: string, total: number, split: string[]) => ({
     amountMinor: total,
     payers: [{ memberId: payer, amountMinor: total }],
-    myShare: mine === null ? null : { amountMinor: mine },
+    shares: computeShares(total, payer, { type: "equal", memberIds: split }),
   });
 
-  it("you paid and others share it: you lent the rest", () => {
-    expect(myPart(expense("me", 9000, 3000), "me")).toEqual({ kind: "lent", amountMinor: 6000 });
-    expect(myPart(expense("me", 9000, null), "me")).toEqual({ kind: "lent", amountMinor: 9000 });
+  it("you paid and others share it: they owe you, by name", () => {
+    expect(myPart(expense("me", 9000, ["me", "asha", "ben"]), "me")).toEqual({
+      kind: "lent",
+      amountMinor: 6000,
+      people: [
+        { memberId: "asha", amountMinor: 3000 },
+        { memberId: "ben", amountMinor: 3000 },
+      ],
+    });
+    expect(myPart(expense("me", 9000, ["asha"]), "me")).toEqual({
+      kind: "lent",
+      amountMinor: 9000,
+      people: [{ memberId: "asha", amountMinor: 9000 }],
+    });
   });
 
   it("you paid only for yourself", () => {
-    expect(myPart(expense("me", 500, 500), "me")).toEqual({ kind: "own" });
+    expect(myPart(expense("me", 500, ["me"]), "me")).toEqual({ kind: "own" });
   });
 
-  it("someone else paid: you owe your share, or you're not involved", () => {
-    expect(myPart(expense("asha", 9000, 3000), "me")).toEqual({ kind: "owe", amountMinor: 3000 });
-    expect(myPart(expense("asha", 9000, null), "me")).toEqual({ kind: "none" });
-    expect(myPart(expense("asha", 9000, 0), "me")).toEqual({ kind: "none" });
+  it("someone else paid: you owe them your share, or you're not involved", () => {
+    expect(myPart(expense("asha", 9000, ["me", "asha", "ben"]), "me")).toEqual({
+      kind: "owe",
+      amountMinor: 3000,
+      people: [{ memberId: "asha", amountMinor: 3000 }],
+    });
+    expect(myPart(expense("asha", 9000, ["asha", "ben"]), "me")).toEqual({ kind: "none" });
   });
 
-  it("several payers: what you paid less your share", () => {
-    const shared = (mePaid: number, mine: number) => ({
-      amountMinor: 9000,
-      payers: [
+  it("several payers: you owe — or are owed by — the people inside this expense", () => {
+    const shared = (mePaid: number) => {
+      const payers = [
         { memberId: "asha", amountMinor: 9000 - mePaid },
         { memberId: "me", amountMinor: mePaid },
-      ],
-      myShare: { amountMinor: mine },
+      ];
+      return { amountMinor: 9000, payers, shares: computeShares(9000, "asha", { type: "equal", memberIds: ["asha", "ben", "me"] }) };
+    };
+    expect(myPart(shared(4500), "me")).toEqual({
+      kind: "lent",
+      amountMinor: 1500,
+      people: [{ memberId: "ben", amountMinor: 1500 }],
     });
-    expect(myPart(shared(4500, 3000), "me")).toEqual({ kind: "lent", amountMinor: 1500 });
-    expect(myPart(shared(1000, 3000), "me")).toEqual({ kind: "owe", amountMinor: 2000 });
-    expect(myPart(shared(3000, 3000), "me")).toEqual({ kind: "even" });
-    expect(myPartText({ kind: "even" }, String)).toBe("You paid your share");
-    expect(myPartText({ kind: "owe", amountMinor: 2000 }, (m) => `₹${m / 100}`)).toBe("You owe ₹20");
+    expect(myPart(shared(1000), "me")).toEqual({
+      kind: "owe",
+      amountMinor: 2000,
+      people: [{ memberId: "asha", amountMinor: 2000 }],
+    });
+    expect(myPart(shared(3000), "me")).toEqual({ kind: "even" });
+  });
+});
+
+describe("myPartText", () => {
+  const fmt = (m: number) => `₹${m / 100}`;
+  const names: Record<string, string> = { asha: "Asha", ben: "Ben", cy: "Cy" };
+  const nameOf = (id: string) => names[id] ?? "Someone";
+  const people = (...xs: [string, number][]) => xs.map(([memberId, amountMinor]) => ({ memberId, amountMinor }));
+
+  it("says whom you owe", () => {
+    expect(myPartText({ kind: "owe", amountMinor: 50_000, people: people(["asha", 50_000]) }, fmt, nameOf)).toBe(
+      "You owe Asha ₹500",
+    );
+    expect(
+      myPartText({ kind: "owe", amountMinor: 50_000, people: people(["asha", 30_000], ["ben", 20_000]) }, fmt, nameOf),
+    ).toBe("You owe Asha ₹300 and Ben ₹200");
+    expect(
+      myPartText({ kind: "owe", amountMinor: 3000, people: people(["asha", 1000], ["ben", 1000], ["cy", 1000]) }, fmt, nameOf),
+    ).toBe("You owe 3 people ₹30");
+  });
+
+  it("says who owes you", () => {
+    expect(myPartText({ kind: "lent", amountMinor: 25_000, people: people(["ben", 25_000]) }, fmt, nameOf)).toBe(
+      "Ben owes you ₹250",
+    );
+    expect(
+      myPartText({ kind: "lent", amountMinor: 50_000, people: people(["asha", 25_000], ["ben", 25_000]) }, fmt, nameOf),
+    ).toBe("Asha and Ben owe you ₹500");
+    expect(
+      myPartText({ kind: "lent", amountMinor: 75_000, people: people(["asha", 1], ["ben", 1], ["cy", 1]) }, fmt, nameOf),
+    ).toBe("3 people owe you ₹750");
+  });
+
+  it("the rest stay short", () => {
+    expect(myPartText({ kind: "even" }, fmt, nameOf)).toBe("You paid your share");
+    expect(myPartText({ kind: "own" }, fmt, nameOf)).toBe("Just you");
+    expect(myPartText({ kind: "none" }, fmt, nameOf)).toBe("Not involved");
   });
 });
 

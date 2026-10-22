@@ -33,7 +33,7 @@ import type { WorkspaceOption } from "./workspace-switcher";
  * already suppresses single keys while typing and while another overlay is open,
  * so it can't fire mid-sentence.
  *
- * Mounted app-wide from the layout; the account menu's workspace list shows the
+ * Mounted app-wide from the layout; the account menu's workspace row shows the
  * same `g` hint so the shortcut is discoverable rather than folklore.
  */
 

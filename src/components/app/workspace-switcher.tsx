@@ -9,9 +9,13 @@ import { Kbd } from "@/components/ui/kbd";
 import { comboFor } from "@/lib/shortcuts";
 import {
   DropdownMenuItem,
-  DropdownMenuLabel,
+  DropdownMenuPortal,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
+import { DEFAULT_WORKSPACE_ICON } from "@/lib/validation";
 import { useLoadingOverlay } from "./loading-overlay";
 import { usePermissions } from "./permissions";
 import { PlanBadge } from "./plan-badge";
@@ -37,17 +41,21 @@ export type WorkspaceOption = {
 };
 
 /**
- * The workspace section of the account menu (top right): every workspace with
- * the current one ticked, then Workspace settings and New workspace. It used to
- * be its own dropdown at the top of the left nav; switching workspace is rare
- * next to switching profile, so it moved in with the rest of "you and your
- * account", and the sidebar starts with the spaces.
+ * The workspace row of the account menu (top right): one submenu trigger
+ * naming the current workspace — its icon, its name and the `g` hint — that
+ * opens, on hover, a tap, → or Enter, onto every workspace (the current one
+ * ticked; picking another switches to it), then New workspace and Workspace
+ * settings. The account menu stays short however many workspaces someone is
+ * in, and the list is one step away. It used to be its own dropdown at the top
+ * of the left nav; switching workspace is rare next to switching profile, so it
+ * moved in with the rest of "you and your account" — the sidebar only labels
+ * the current one (`ProfileList`).
  *
- * Renders bare menu items — the caller's `DropdownMenuContent` holds them. The
- * create dialog (`CreateWorkspaceDialog`) is rendered by the caller, outside the menu,
- * because the menu's content unmounts the moment it closes.
+ * Renders a `DropdownMenuSub` — the caller's `DropdownMenuContent` holds it.
+ * The create dialog (`CreateWorkspaceDialog`) is rendered by the caller,
+ * outside the menu, because the menu's content unmounts the moment it closes.
  */
-export function WorkspaceMenuItems({
+export function WorkspaceSubmenu({
   workspaces,
   currentId,
   onCreate,
@@ -62,6 +70,7 @@ export function WorkspaceMenuItems({
   const { canWrite } = usePermissions();
   // One free workspace per person: the item still opens the form, which explains.
   const createLock = useAddLock("workspaces");
+  const current = workspaces.find((w) => w.id === currentId) ?? workspaces[0];
 
   function handleSwitch(id: string) {
     if (id === currentId) return;
@@ -82,49 +91,68 @@ export function WorkspaceMenuItems({
     );
   }
 
+  if (!current) return null;
+
   return (
-    <>
-      <DropdownMenuLabel className="flex items-center justify-between gap-2 px-2 text-xs font-normal text-muted-foreground">
-        Workspaces
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger className="cursor-pointer gap-2 px-2 py-2">
+        <span aria-hidden className="w-5 shrink-0 text-center text-sm leading-none">
+          {current.icon ?? DEFAULT_WORKSPACE_ICON}
+        </span>
+        <span className="min-w-0 flex-1 truncate">
+          <span className="sr-only">Workspace: </span>
+          {current.name}
+        </span>
         {/* Teaches the `g` picker (WorkspaceSwitchDialog) where people come to
             switch. Bound only with more than one workspace, so shown only then;
             no keyboard on a phone. */}
         {workspaces.length > 1 && (
           <Kbd combo={comboFor("workspace.switch")} className="hidden opacity-70 sm:inline-flex" />
         )}
-      </DropdownMenuLabel>
-      {workspaces.map((w) => (
-        <DropdownMenuItem
-          key={w.id}
-          onSelect={() => handleSwitch(w.id)}
-          aria-current={w.id === currentId ? "true" : undefined}
-          className="cursor-pointer gap-2 px-2 py-2"
+      </DropdownMenuSubTrigger>
+      {/* Portalled, as Radix documents for submenus, so the account menu's own
+          scroll box can't clip it. Capped to the room on screen, scrolling past
+          it; names are truncated rather than stretching it. */}
+      <DropdownMenuPortal>
+        <DropdownMenuSubContent
+          sideOffset={8}
+          alignOffset={-6}
+          className="max-h-(--radix-dropdown-menu-content-available-height) min-w-64 max-w-[min(20rem,calc(100vw-1rem))] overflow-x-hidden overflow-y-auto p-1.5"
         >
-          <span aria-hidden className="w-5 shrink-0 text-center text-sm leading-none">
-            {w.icon ?? ""}
-          </span>
-          <span className="min-w-0 flex-1 truncate">{w.name}</span>
-          <PlanBadge plan={w.plan} />
-          <span className="shrink-0 text-xs text-muted-foreground capitalize">{roleLabel(w.role)}</span>
-          <Check className={cn("size-4", w.id === currentId ? "opacity-100" : "opacity-0")} />
-        </DropdownMenuItem>
-      ))}
-      <DropdownMenuItem asChild className="px-2 py-2">
-        <Link href="/app/settings/workspace" className="cursor-pointer">
-          <Settings2 className="size-4" />
-          Workspace settings
-        </Link>
-      </DropdownMenuItem>
-      {canWrite && (
-        <LimitTooltip lock={createLock} side="left">
-          <DropdownMenuItem onSelect={onCreate} className="cursor-pointer px-2 py-2">
-            <Plus className="size-4" />
-            New workspace
-            {createLock && <LockGlyph className="ml-auto" />}
+          {workspaces.map((w) => (
+            <DropdownMenuItem
+              key={w.id}
+              onSelect={() => handleSwitch(w.id)}
+              aria-current={w.id === currentId ? "true" : undefined}
+              className="cursor-pointer gap-2 px-2 py-2"
+            >
+              <span aria-hidden className="w-5 shrink-0 text-center text-sm leading-none">
+                {w.icon ?? DEFAULT_WORKSPACE_ICON}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{w.name}</span>
+              <PlanBadge plan={w.plan} />
+              <span className="shrink-0 text-xs text-muted-foreground capitalize">{roleLabel(w.role)}</span>
+              <Check className={cn("size-4", w.id === currentId ? "opacity-100" : "opacity-0")} />
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          {canWrite && (
+            <LimitTooltip lock={createLock} side="left">
+              <DropdownMenuItem onSelect={onCreate} className="cursor-pointer px-2 py-2">
+                <Plus className="size-4" />
+                New workspace
+                {createLock && <LockGlyph className="ml-auto" />}
+              </DropdownMenuItem>
+            </LimitTooltip>
+          )}
+          <DropdownMenuItem asChild className="px-2 py-2">
+            <Link href="/app/settings/workspace" className="cursor-pointer">
+              <Settings2 className="size-4" />
+              Workspace settings
+            </Link>
           </DropdownMenuItem>
-        </LimitTooltip>
-      )}
-      <DropdownMenuSeparator />
-    </>
+        </DropdownMenuSubContent>
+      </DropdownMenuPortal>
+    </DropdownMenuSub>
   );
 }

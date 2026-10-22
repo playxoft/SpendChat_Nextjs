@@ -603,7 +603,8 @@ negative when they **owe**.
       "inviteLink": "https://…/invite/split/<token>" | null } // creator only, for everyone still invited
                                                 // (account or not); works only for that email
   ],
-  "suggestions": [                              // payments that square everyone, biggest first
+  "suggestions": [                              // person to person: each pair's shared bills netted
+                                                // (less payments between them), biggest first
     { "fromMemberId": "uuid", "toMemberId": "uuid", "amountMinor": 3333, "amount": "33.33" }
   ],
   "peopleCount": 3, "maxPeople": 50,
@@ -1139,8 +1140,8 @@ records payments. Ids in paths are uuids; a malformed one is a 404.
 | `PATCH /split/groups/{id}` | `{ name?, icon?, currency? }` (≥ 1; `icon: null`/`""` clears) | 200 `data: SplitGroupDetail` | Creator only. Currency only while there are no expenses or payments (409 `conflict`) |
 | `DELETE /split/groups/{id}` | — | 200 `data: { deleted: true }` | Creator only. Everything in the group goes; shares already added to workspaces stay there |
 | `POST /split/groups/{id}/members` | `{ members: [{ name, email? }] }` (1–49) | 200 `data: { group, added }` | Creator only. Account holders get an in-app invitation, anyone else one email — the response is `invited` either way. No email (absent, `null` or `""`) adds them by name only — `added`, nobody invited (6.14.0). Someone you removed is re-invited on the same member id. Refused as a whole, before anything is written: 400 your own address (any spelling); 422 two spellings of one inbox; **409 `invite_cooldown`** someone who declined or left in the last 30 days (`details: { emails, until }`); **409 `conflict`** an inbox you already have 3 open invitations out to (`details: { emails }`); **429 `rate_limited`** past 100 people added in 24 h across your groups; **409 `split_group_full`** past 50 people (the creator included, every plan) |
-| `DELETE /split/groups/{id}/members/{memberId}` | — | 200 `data: { removed: true }` | Creator only. **409 `settle_first`** while they have a balance; 400 yourself |
-| `POST /split/groups/{id}/leave` | — | 200 `data: { left: true }` | **409 `settle_first`** while you have a balance; 400 for the creator (delete instead) |
+| `DELETE /split/groups/{id}/members/{memberId}` | — | 200 `data: { removed: true }` | Creator only. **409 `settle_first`** while they owe or are owed anyone (any `suggestions` line names them); 400 yourself |
+| `POST /split/groups/{id}/leave` | — | 200 `data: { left: true }` | **409 `settle_first`** while any `suggestions` line names you; 400 for the creator (delete instead) |
 | `GET /split/groups/{id}/expenses?limit=&offset=` | — | 200 `data: SplitExpense[]`, `meta: { total, limit, offset, currency: CurrencyMeta }` | Newest first (`occurredOn`, then created) |
 | `POST /split/groups/{id}/expenses` | `{ title, amount, payers \| paidBy, occurredOn, splitType, memberIds \| shares }` | 201 `data: SplitExpense` | Any joined member. Who paid: `payers: [{ memberId, amount? }]` (several people; amounts for all — summing to `amount` — or for none, which divides it evenly by join order) or the older single `paidBy` — one of the two. Each payer is credited what they paid in balances. `equal` → `memberIds`; `exact` → `shares: [{ memberId, amount }]` summing to `amount`; `percent` → `shares: [{ memberId, percent }]` (≤ 2 dp) summing to 100. **The server computes every share.** Rounding: `equal` → leftover minor units go to the (main) payer first — whoever paid the most — then by join order; `percent` → shares rounded down, leftovers to the largest remainders first (ties: payer, then join order); `exact` → as entered. 422 for bad sums (neutral `message`; `details: { sumMinor, totalMinor }`, `{ bpSum }` or `{ paidSumMinor, totalMinor }`), both or neither of `payers`/`paidBy`, someone not in the group, or an amount that rounds to 0 minor units (¥0.4) |
 | `GET /split/groups/{id}/expenses/{expenseId}` | — | 200 `data: SplitExpense` | |

@@ -808,6 +808,110 @@ describe("split expenses, balances and settling up", () => {
   });
 });
 
+describe("settle-up plan, person to person", () => {
+  /** "o" plus people who joined, in this order; returns their member ids by alias. */
+  async function group(...aliases: string[]) {
+    const id = await newGroup();
+    const ids: Record<string, string> = { o: (await split.getGroupDetail(uid("o"), id)).me.memberId };
+    for (const a of aliases) ids[a] = await joinAs(id, a);
+    return { id, ids };
+  }
+
+  async function spend(groupId: string, title: string, amount: number, paidBy: string, memberIds: string[]) {
+    signInAs("o");
+    ok(await actions.createSplitExpense(groupId, { title, amount, paidBy, occurredOn: today, splitType: "equal", memberIds }));
+  }
+
+  const line = (fromMemberId: string, toMemberId: string, amountMinor: number) => ({ fromMemberId, toMemberId, amountMinor });
+
+  it("the Goa trip: everyone pays back whoever paid for them, each pair netted — not a re-routed shortcut", async () => {
+    const { id, ids } = await group("sen", "nan", "mut");
+    const all = [ids.o!, ids.sen!, ids.nan!, ids.mut!];
+    await spend(id, "Lunch", 1000, ids.o!, all);
+    await spend(id, "Dinner", 2000, ids.sen!, all);
+
+    const detail = await split.getGroupDetail(uid("o"), id);
+    expect(detail.suggestions).toHaveLength(5);
+    expect(detail.suggestions).toEqual(
+      expect.arrayContaining([
+        // Dinner: ₹500 each to Senthil, less the ₹250 he owes "o" for lunch.
+        line(ids.o!, ids.sen!, 25_000),
+        line(ids.nan!, ids.sen!, 50_000),
+        line(ids.mut!, ids.sen!, 50_000),
+        // Lunch: ₹250 each to "o" — Nantha too, who ate it.
+        line(ids.nan!, ids.o!, 25_000),
+        line(ids.mut!, ids.o!, 25_000),
+      ]),
+    );
+    // The most first; every member gets the same list.
+    expect(detail.suggestions.map((s) => s.amountMinor)).toEqual([50_000, 50_000, 25_000, 25_000, 25_000]);
+    expect((await split.getGroupDetail(uid("mut"), id)).suggestions).toEqual(detail.suggestions);
+
+    // Each person's lines add up to the balance on their chip.
+    for (const m of detail.members) {
+      const fromLines = detail.suggestions.reduce(
+        (acc, s) => acc + (s.toMemberId === m.id ? s.amountMinor : 0) - (s.fromMemberId === m.id ? s.amountMinor : 0),
+        0,
+      );
+      expect(fromLines).toBe(m.netMinor);
+    }
+
+    // A part payment counts against that pair only.
+    signInAs("nan");
+    ok(await actions.recordSplitSettlement(id, { fromMemberId: ids.nan!, toMemberId: ids.o!, amount: 100, settledOn: today }));
+    const after = await split.getGroupDetail(uid("o"), id);
+    expect(after.suggestions).toEqual(expect.arrayContaining([line(ids.nan!, ids.o!, 15_000)]));
+    expect(after.suggestions.filter((s) => s.fromMemberId !== ids.nan! || s.toMemberId !== ids.o!)).toEqual(
+      detail.suggestions.filter((s) => s.fromMemberId !== ids.nan! || s.toMemberId !== ids.o!),
+    );
+  });
+
+  it("an expense two people paid is matched inside it, beside one-payer expenses summed in SQL", async () => {
+    const { id, ids } = await group("asha", "ravi");
+    signInAs("o");
+    // ₹900 for three: o paid ₹600, Asha ₹300 (her share) — Ravi owes o his ₹300.
+    ok(
+      await actions.createSplitExpense(id, {
+        title: "Cab",
+        amount: 900,
+        payers: [
+          { memberId: ids.o!, amount: 600 },
+          { memberId: ids.asha!, amount: 300 },
+        ],
+        occurredOn: today,
+        splitType: "equal",
+        memberIds: [ids.o!, ids.asha!, ids.ravi!],
+      }),
+    );
+    await spend(id, "Snacks", 300, ids.ravi!, [ids.ravi!, ids.asha!]);
+    const detail = await split.getGroupDetail(uid("asha"), id);
+    expect(detail.suggestions).toEqual([line(ids.ravi!, ids.o!, 30_000), line(ids.asha!, ids.ravi!, 15_000)]);
+  });
+
+  it("square overall but owing one person what another owes you: can't leave or be removed until both are paid", async () => {
+    const { id, ids } = await group("asha", "ravi");
+    await spend(id, "Tickets", 200, ids.o!, [ids.o!, ids.asha!]); // Asha owes o ₹100
+    await spend(id, "Taxi", 200, ids.asha!, [ids.asha!, ids.ravi!]); // Ravi owes Asha ₹100
+    const detail = await split.getGroupDetail(uid("asha"), id);
+    expect(detail.members.find((m) => m.id === ids.asha!)!.netMinor).toBe(0);
+    expect(detail.suggestions).toEqual(
+      expect.arrayContaining([line(ids.asha!, ids.o!, 10_000), line(ids.ravi!, ids.asha!, 10_000)]),
+    );
+
+    signInAs("asha");
+    expect(await actions.leaveSplitGroup(id)).toMatchObject({ ok: false, code: "settle_first" });
+    signInAs("o");
+    expect(await actions.removeSplitMember(id, ids.asha!)).toMatchObject({ ok: false, code: "settle_first" });
+
+    signInAs("asha");
+    ok(await actions.recordSplitSettlement(id, { fromMemberId: ids.asha!, toMemberId: ids.o!, amount: 100, settledOn: today }));
+    expect(await actions.leaveSplitGroup(id)).toMatchObject({ ok: false, code: "settle_first" });
+    ok(await actions.recordSplitSettlement(id, { fromMemberId: ids.ravi!, toMemberId: ids.asha!, amount: 100, settledOn: today }));
+    ok(await actions.leaveSplitGroup(id));
+    expect((await split.getGroupDetail(uid("o"), id)).suggestions).toEqual([]);
+  });
+});
+
 describe("account deletion and split", () => {
   it("deletes the groups you created and anonymises you elsewhere, keeping balances", async () => {
     // Asha's own group goes with her.

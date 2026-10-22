@@ -8,8 +8,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { authorColorClass } from "@/lib/author-color";
 import { formatMoney } from "@/lib/money";
-import { myPart, myPartText, payersLabel } from "@/lib/split-display";
+import { myPart, myPartText, payersLabel, type MyPart } from "@/lib/split-display";
 import { cn } from "@/lib/utils";
 import type { SplitExpenseView } from "@/services/split-ledger";
 import { AvatarStack, MemberAvatar } from "./member-avatar";
@@ -23,8 +24,9 @@ const SPLIT_LABEL: Record<SplitExpenseView["splitType"], string> = {
 /**
  * An expense as a chat message — the tracker's bubble shape (rounded card,
  * the corner nearest the avatar squared off, `animate-rise`), with what a split
- * needs: title and amount, who paid and how it's split, and where the viewer
- * stands on it ("You lent ₹X", "You owe ₹Y", "Not involved"). What the viewer
+ * needs: title and amount, who paid (in bold, in their chat colour) and how
+ * it's split, and where the viewer stands on it, naming the other side ("You
+ * owe Senthil ₹500", "3 people owe you ₹750", "Not involved"). What the viewer
  * paid (or paid towards) sits on the right, like a sent message; everyone
  * else's on the left. Several payers read "Asha and you paid".
  * Tapping it opens the details; editing and deleting are in its menu.
@@ -54,7 +56,8 @@ export function ExpenseBubble({
   const fmt = (m: number) => formatMoney(m, currency, locale);
   const payer = payersLabel(expense.payers.map((p) => ({ name: p.name, isYou: p.memberId === meMemberId })));
   const people = expense.shares.length;
-  const partText = myPartText(part, fmt);
+  const nameOf = (id: string) => expense.shares.find((s) => s.memberId === id)?.name || expense.payers.find((p) => p.memberId === id)?.name || "Someone";
+  const partText = myPartText(part, fmt, nameOf);
   const workspaceNote = expense.myShare?.added
     ? expense.myShare.changedSinceAdded
       ? "Changed since you added it to your workspace"
@@ -100,19 +103,21 @@ export function ExpenseBubble({
           <span className="shrink-0 text-base font-semibold tabular-nums">{fmt(expense.amountMinor)}</span>
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {payer} paid · {SPLIT_LABEL[expense.splitType]}
+          {/* The main payer's colour, as their avatar has it. */}
+          <span className={cn("font-semibold", authorColorClass(expense.paidBy.memberId))}>{payer}</span> paid ·{" "}
+          {SPLIT_LABEL[expense.splitType]}
           {people > 1 ? ` · ${people} people` : ""}
         </p>
         <div className="mt-1.5 flex items-center gap-2 text-xs">
           <span
             className={cn(
-              "font-medium",
-              part.kind === "lent" && "text-emerald-600 dark:text-emerald-400",
+              "min-w-0",
+              part.kind === "lent" && "text-emerald-700 dark:text-emerald-400",
               part.kind === "owe" && "text-foreground",
               (part.kind === "none" || part.kind === "own" || part.kind === "even") && "text-muted-foreground",
             )}
           >
-            {partText}
+            <PartLine part={part} format={fmt} nameOf={nameOf} />
           </span>
           {workspaceNote && (
             <span aria-hidden className="inline-flex items-center text-muted-foreground" title={workspaceNote}>
@@ -149,4 +154,43 @@ export function ExpenseBubble({
       )}
     </div>
   );
+}
+
+/**
+ * `myPartText` with the names and the amount in bold — "You owe **Senthil**
+ * **₹500**". The bubble's spoken label carries the plain words.
+ */
+export function PartLine({
+  part,
+  format,
+  nameOf,
+}: {
+  part: MyPart;
+  format: (minor: number) => string;
+  nameOf: (memberId: string) => string;
+}) {
+  const b = (text: string) => <span className="font-semibold">{text}</span>;
+  const amount = b(format("amountMinor" in part ? part.amountMinor : 0));
+  if (part.kind === "lent") {
+    const [a, c] = part.people;
+    if (part.people.length === 1) return <>{b(nameOf(a!.memberId))} owes you {amount}</>;
+    if (part.people.length === 2) {
+      return <>{b(nameOf(a!.memberId))} and {b(nameOf(c!.memberId))} owe you {amount}</>;
+    }
+    return <>{part.people.length} people owe you {amount}</>;
+  }
+  if (part.kind === "owe") {
+    const [a, c] = part.people;
+    if (part.people.length === 1) return <>You owe {b(nameOf(a!.memberId))} {amount}</>;
+    if (part.people.length === 2) {
+      return (
+        <>
+          You owe {b(nameOf(a!.memberId))} {b(format(a!.amountMinor))} and {b(nameOf(c!.memberId))}{" "}
+          {b(format(c!.amountMinor))}
+        </>
+      );
+    }
+    return <>You owe {part.people.length} people {amount}</>;
+  }
+  return <>{myPartText(part, format, nameOf)}</>;
 }

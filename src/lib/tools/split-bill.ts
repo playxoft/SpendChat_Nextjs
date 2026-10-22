@@ -5,10 +5,12 @@ import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
 import {
   BASIS_POINTS_TOTAL,
   computeShares,
+  expenseDebts,
   fromBasisPoints,
   netBalances,
+  pairwiseSettlements,
   SplitMathError,
-  suggestSettlements,
+  type SettlementSuggestion,
   type ShareAmount,
   type ShareSpec,
 } from "@/lib/split-math";
@@ -364,7 +366,7 @@ export type DraftLedger = {
   totalMinor: number;
   /** Per person, in draft order. Nets sum to zero. */
   balances: PersonBalance[];
-  /** Who pays whom to settle everyone (at most n − 1 payments, not a guaranteed minimum), largest first. */
+  /** Who pays whom to settle everyone, person to person (each pair's shared bills netted), largest first. */
   payments: Payment[];
   /** Expenses that don't add up and were left out (shouldn't happen — the form checks). */
   invalid: string[];
@@ -380,6 +382,7 @@ export function computeLedger(draft: SplitDraft, order?: readonly string[]): Dra
   const { toKey, fromKey } = positionalKeys(order ?? ids);
   const paid: Record<string, number> = {};
   const owed: Record<string, number> = {};
+  const debts: SettlementSuggestion[] = [];
   const invalid: string[] = [];
   let totalMinor = 0;
   for (const e of draft.expenses) {
@@ -395,6 +398,7 @@ export function computeLedger(draft: SplitDraft, order?: readonly string[]): Dra
     const payer = toKey(e.paidBy);
     paid[payer] = (paid[payer] ?? 0) + e.amountMinor;
     for (const s of shares) owed[s.memberId] = (owed[s.memberId] ?? 0) + s.amountMinor;
+    debts.push(...expenseDebts([{ memberId: payer, amountMinor: e.amountMinor }], shares));
   }
   const keys = ids.map(toKey);
   const nets = netBalances(keys, { paid, owed, sent: {}, received: {} });
@@ -406,7 +410,7 @@ export function computeLedger(draft: SplitDraft, order?: readonly string[]): Dra
       shareMinor: owed[b.memberId] ?? 0,
       netMinor: b.netMinor,
     })),
-    payments: suggestSettlements(nets).map((s) => ({
+    payments: pairwiseSettlements(debts).map((s) => ({
       from: fromKey(s.fromMemberId),
       to: fromKey(s.toMemberId),
       amountMinor: s.amountMinor,

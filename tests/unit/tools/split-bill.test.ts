@@ -231,9 +231,11 @@ describe("computeLedger", () => {
       { id: "p0002", paidMinor: 60_000, shareMinor: 120_000, netMinor: -60_000 },
       { id: "p0003", paidMinor: 0, shareMinor: 120_000, netMinor: -120_000 },
     ]);
+    // Person to person: each pair's bills netted — never Chloe paying Asha for Ben's groceries.
     expect(ledger.payments).toEqual([
-      { from: "p0003", to: "p0001", amountMinor: 120_000 },
-      { from: "p0002", to: "p0001", amountMinor: 60_000 },
+      { from: "p0003", to: "p0001", amountMinor: 100_000 },
+      { from: "p0002", to: "p0001", amountMinor: 80_000 },
+      { from: "p0003", to: "p0002", amountMinor: 20_000 },
     ]);
   });
 

@@ -14,7 +14,12 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { ProfileList, type SidebarProfile, type SidebarSpace } from "./profile-list";
+import {
+  ProfileList,
+  type SidebarProfile,
+  type SidebarSpace,
+  type SidebarWorkspace,
+} from "./profile-list";
 import { AccountControls } from "./account-controls";
 import { MobileBulkAdd } from "./mobile-bulk-add";
 import { hrefWithProfile } from "./nav-items";
@@ -29,7 +34,7 @@ export function AppTopbar({
   locale,
   today,
   canWrite,
-  workspaceName = null,
+  workspace,
 }: {
   profiles: SidebarProfile[];
   spaces: SidebarSpace[];
@@ -40,8 +45,8 @@ export function AppTopbar({
   today: string;
   /** Viewers (no editor access anywhere) don't get the bulk-add button. */
   canWrite: boolean;
-  /** Shown beside the Spaces heading for someone with several workspaces (see `ProfileList`). */
-  workspaceName?: string | null;
+  /** The current workspace, labelled above the Spaces heading (see `ProfileList`). */
+  workspace: SidebarWorkspace;
 }) {
   const [open, setOpen] = useState(false);
   const profile = useSearchParams().get("profile");
@@ -78,7 +83,7 @@ export function AppTopbar({
                 spaces={spaces}
                 collapsedSpaces={collapsedSpaces}
                 onNavigate={() => setOpen(false)}
-                workspaceName={workspaceName}
+                workspace={workspace}
               />
             </div>
           </SheetContent>

@@ -73,6 +73,8 @@ export default async function AppLayout({
   const canManage = workspace.role === "admin";
   const sidebarPrefs = normalizeUiPrefs(settings.uiPrefs).sidebar;
   const collapsedSpaces = sidebarPrefs.collapsedSpaces;
+  // Labelled above the Spaces heading in the sidebar and the phone sheet.
+  const sidebarWorkspace = { name: workspace.name, icon: workspace.icon };
 
   return (
     <LoadingOverlayProvider>
@@ -103,7 +105,7 @@ export default async function AppLayout({
         navLayout={sidebarPrefs.nav}
         budgetAlerts={budgetAlerts}
         splitInvitations={splitInvitations}
-        workspaceName={workspaces.length > 1 ? workspace.name : null}
+        workspace={sidebarWorkspace}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <AccountCorner />
@@ -116,7 +118,7 @@ export default async function AppLayout({
           locale={workspace.locale}
           today={todayISO(timeZone)}
           canWrite={canWrite}
-          workspaceName={workspaces.length > 1 ? workspace.name : null}
+          workspace={sidebarWorkspace}
         />
         <main className="flex-1 pb-16 md:pb-0">{children}</main>
         <BottomNav budgetAlerts={budgetAlerts} splitInvitations={splitInvitations} />

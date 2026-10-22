@@ -35,7 +35,7 @@ import {
 } from "@/lib/pricing";
 
 /**
- * Modal for creating a new workspace. Reused by the account menu's workspace list,
+ * Modal for creating a new workspace. Reused by the account menu's workspace submenu,
  * the workspace settings page and the organisation page. An outside click never
  * dismisses it (the dialog's app-wide default), so a stray click can't lose a
  * half-typed name.

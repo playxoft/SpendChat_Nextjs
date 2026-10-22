@@ -19,7 +19,7 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
-## 6.14.0 — 2026-10-21
+## 6.14.0 — 2026-10-22
 
 Additive. **Split: a person's email is optional.**
 
@@ -42,6 +42,21 @@ web) reads as an `invited` member with no email and no invite link. To support i
 people" (send no email, or `null`), accept `email: null` and `status: "added"`
 in `SplitAddedPerson`, and show a member with `nameOnly: true` as "Not invited —
 no email" instead of "Invited" (no "Copy invite link").
+
+Also in this release, with **no shape change** — **`suggestions` are now
+person to person.** `GET /split/groups/{id}` used to match balances across the
+whole group, which could have someone pay a person they never shared a bill
+with (you paid lunch for four, Senthil paid dinner for four, and it had one
+friend pay you while another, who ate your lunch too, paid you nothing). Now
+each pair's debts come from the expenses they shared — an expense several people
+paid is matched inside it — netted against each other and against payments
+recorded between them: biggest first, at most one line per pair, and each
+member's lines add up to their `balanceMinor`. A group can show more lines than
+before. Leaving (`POST /split/groups/{id}/leave`) and removing someone now
+answer **409 `settle_first`** while any line names them, even at a zero balance
+overall. **Flutter impact:** none required — same fields; show the list as
+sent (don't re-derive it from balances), and expect `settle_first` at a zero
+balance.
 
 Also in this release, with no contract change: a **new account** now starts with
 `Settings.inputMode: "combined"` (it was `amount_title`). Existing accounts keep

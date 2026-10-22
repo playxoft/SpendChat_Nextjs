@@ -5,7 +5,12 @@ import { useSearchParams } from "next/navigation";
 import { Logo } from "@/components/logo";
 import { Separator } from "@/components/ui/separator";
 import type { SidebarNavLayout } from "@/lib/sidebar-nav";
-import { ProfileList, type SidebarProfile, type SidebarSpace } from "./profile-list";
+import {
+  ProfileList,
+  type SidebarProfile,
+  type SidebarSpace,
+  type SidebarWorkspace,
+} from "./profile-list";
 import { hrefWithProfile, invitationBadge } from "./nav-items";
 import { SidebarNav } from "./sidebar-nav";
 import { BudgetNavBadge, type BudgetAlertCount } from "./budgets/budget-nav-badge";
@@ -17,7 +22,7 @@ export function AppSidebar({
   navLayout,
   budgetAlerts,
   splitInvitations = 0,
-  workspaceName = null,
+  workspace,
 }: {
   profiles: SidebarProfile[];
   spaces: SidebarSpace[];
@@ -28,8 +33,8 @@ export function AppSidebar({
   budgetAlerts?: Promise<BudgetAlertCount>;
   /** Split invitations waiting for an answer — the badge on Split. */
   splitInvitations?: number;
-  /** Shown beside the Spaces heading for someone with several workspaces (see `ProfileList`). */
-  workspaceName?: string | null;
+  /** The current workspace, labelled above the Spaces heading (see `ProfileList`). */
+  workspace: SidebarWorkspace;
 }) {
   const profile = useSearchParams().get("profile");
 
@@ -50,7 +55,7 @@ export function AppSidebar({
           spaces={spaces}
           collapsedSpaces={collapsedSpaces}
           enableShortcuts
-          workspaceName={workspaceName}
+          workspace={workspace}
         />
       </div>
 

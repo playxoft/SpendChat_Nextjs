@@ -27,7 +27,7 @@ import { requestProductTour } from "./product-tour-store";
 import { usePlan } from "./upgrade-dialog";
 import type { AccountSummary } from "./account-controls";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
-import { WorkspaceMenuItems } from "./workspace-switcher";
+import { WorkspaceSubmenu } from "./workspace-switcher";
 
 /** "50 AI actions a month · 1 GB" — what this workspace's plan gives, on one line. */
 function planLine(plan: PersonalPlan): string {
@@ -37,11 +37,12 @@ function planLine(plan: PersonalPlan): string {
 
 /**
  * The account menu, top right on every app page: the person's picture (or
- * initial), and under it who's signed in, their workspaces (the switcher —
- * see `WorkspaceMenuItems`), the current workspace's plan with a way up, then
- * Settings, Trash, a replay of the product tour and Sign out. The plan shown is
- * the *workspace's* — plans are per workspace — read from the layout's
- * `PlanProvider`.
+ * initial), and under it who's signed in; then the current workspace as one
+ * row that opens a submenu — every workspace to switch to, New workspace and
+ * Workspace settings (see `WorkspaceSubmenu`) — with that workspace's plan and
+ * a way up right below it; then Settings, Trash, a replay of the product tour
+ * and Sign out. The plan shown is the *workspace's* — plans are per workspace —
+ * read from the layout's `PlanProvider`.
  */
 export function UserMenu({ account }: { account: AccountSummary }) {
   const { email, name, image, workspaces, currentWorkspaceId } = account;
@@ -104,11 +105,12 @@ export function UserMenu({ account }: { account: AccountSummary }) {
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <WorkspaceMenuItems
+        <WorkspaceSubmenu
           workspaces={workspaces}
           currentId={currentWorkspaceId}
           onCreate={() => setCreateOpen(true)}
         />
+        {/* Straight under the workspace row, no separator: it's that workspace's plan. */}
         <div className="space-y-2 px-2 py-2">
           <div className="flex items-center gap-2">
             <PlanBadge plan={plan} className="h-5 px-2 text-xs" />

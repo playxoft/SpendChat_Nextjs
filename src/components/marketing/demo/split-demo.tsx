@@ -10,8 +10,9 @@ import { demoAmount, useDemoMoney } from "@/hooks/use-demo-currency";
 import { formatMoney } from "@/lib/money";
 import {
   computeShares,
+  expenseDebts,
   netBalances,
-  suggestSettlements,
+  pairwiseSettlements,
   toBasisPoints,
   type ShareAmount,
   type ShareSpec,
@@ -23,8 +24,8 @@ import { cn } from "@/lib/utils";
  *
  * Every share, balance and suggested payment on screen comes from
  * `src/lib/split-math.ts` — `computeShares` for each expense, `netBalances`
- * for who's up and who's down, `suggestSettlements` for who pays whom
- * that clear it — the functions the server runs before it stores anything. So
+ * for who's up and who's down, `expenseDebts` + `pairwiseSettlements` for who
+ * pays whom, person to person — the functions the server runs. So
  * switching the dinner from Equal to Percent moves the leftover cent exactly
  * where the app would put it.
  *
@@ -129,7 +130,10 @@ export function SplitDemo() {
     sent: sum(payments.map((p) => ({ id: p.from, v: p.amountMinor }))),
     received: sum(payments.map((p) => ({ id: p.to, v: p.amountMinor }))),
   });
-  const suggestions = suggestSettlements(balances);
+  const suggestions = pairwiseSettlements(
+    expenses.flatMap((e) => expenseDebts([{ memberId: e.paidBy, amountMinor: e.total }], e.shares)),
+    payments.map((p) => ({ fromMemberId: p.from, toMemberId: p.to, amountMinor: p.amountMinor })),
+  );
   const settled = suggestions.length === 0;
 
   function reset() {

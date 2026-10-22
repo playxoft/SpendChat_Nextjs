@@ -1,4 +1,5 @@
 import { integerDigitCount, stripNonAmountChars } from "./parse-amount";
+import { expenseDebts } from "./split-math";
 import { AMOUNT_INTEGER_DIGITS_MAX } from "./validation";
 
 /**
@@ -15,45 +16,71 @@ export function initialsOf(name: string): string {
   return (first + last).toUpperCase();
 }
 
+/** Someone on the other side of the viewer's part in one expense. */
+export type Counterpart = { memberId: string; amountMinor: number };
+
 /** Where the viewer stands on one expense — the line under its title. */
 export type MyPart =
-  | { kind: "lent"; amountMinor: number }
-  | { kind: "owe"; amountMinor: number }
+  | { kind: "lent"; amountMinor: number; people: Counterpart[] }
+  | { kind: "owe"; amountMinor: number; people: Counterpart[] }
   | { kind: "own" }
   | { kind: "even" }
   | { kind: "none" };
 
 /**
- * Where you stand: what you paid towards it less your share. "You lent ₹X"
- * when you paid more than your share; "You owe ₹Y" when you paid less (or
- * nothing) and you're in it; "own" when you paid it all just for yourself;
- * "even" when you paid exactly your share of a shared one; "none" ("Not
- * involved") otherwise.
+ * Where you stand on one expense, and with whom (`expenseDebts` — the same
+ * matching the group's settle-up plan is built from): "lent" when people owe
+ * you for it, "owe" when you owe someone, the most first; "own" when you paid
+ * it all just for yourself; "even" when you paid exactly your share of a
+ * shared one; "none" ("Not involved") otherwise.
  */
 export function myPart(
   expense: {
     amountMinor: number;
     payers: readonly { memberId: string; amountMinor: number }[];
-    myShare: { amountMinor: number } | null;
+    shares: readonly { memberId: string; amountMinor: number }[];
   },
   myMemberId: string,
 ): MyPart {
-  const mine = expense.myShare?.amountMinor ?? 0;
-  const paid = expense.payers.reduce((acc, p) => acc + (p.memberId === myMemberId ? p.amountMinor : 0), 0);
-  const net = paid - mine;
-  if (net > 0) return { kind: "lent", amountMinor: net };
-  if (net < 0) return { kind: "owe", amountMinor: -net };
-  if (paid > 0) return mine === expense.amountMinor ? { kind: "own" } : { kind: "even" };
-  return { kind: "none" };
+  const debts = expenseDebts(expense.payers, expense.shares);
+  const total = (people: Counterpart[]) => people.reduce((acc, p) => acc + p.amountMinor, 0);
+  const lent = debts
+    .filter((d) => d.toMemberId === myMemberId)
+    .map((d) => ({ memberId: d.fromMemberId, amountMinor: d.amountMinor }));
+  if (lent.length > 0) return { kind: "lent", amountMinor: total(lent), people: lent };
+  const owe = debts
+    .filter((d) => d.fromMemberId === myMemberId)
+    .map((d) => ({ memberId: d.toMemberId, amountMinor: d.amountMinor }));
+  if (owe.length > 0) return { kind: "owe", amountMinor: total(owe), people: owe };
+  const paid = expense.payers.some((p) => p.memberId === myMemberId && p.amountMinor > 0);
+  if (!paid) return { kind: "none" };
+  const mine = expense.shares.find((s) => s.memberId === myMemberId)?.amountMinor ?? 0;
+  return mine === expense.amountMinor ? { kind: "own" } : { kind: "even" };
 }
 
-/** The words for `myPart` — the bubble's line, and its spoken label. */
-export function myPartText(part: MyPart, format: (minor: number) => string): string {
+/**
+ * The words for `myPart`, naming the other side — "You owe Senthil ₹500",
+ * "Asha and Ben owe you ₹600", "3 people owe you ₹750" — for the bubble's
+ * spoken label and anywhere a plain string is needed.
+ */
+export function myPartText(part: MyPart, format: (minor: number) => string, nameOf: (memberId: string) => string): string {
   switch (part.kind) {
-    case "lent":
-      return `You lent ${format(part.amountMinor)}`;
-    case "owe":
-      return `You owe ${format(part.amountMinor)}`;
+    case "lent": {
+      const [a, b] = part.people;
+      if (part.people.length === 1) return `${nameOf(a!.memberId)} owes you ${format(part.amountMinor)}`;
+      if (part.people.length === 2) {
+        return `${nameOf(a!.memberId)} and ${nameOf(b!.memberId)} owe you ${format(part.amountMinor)}`;
+      }
+      return `${part.people.length} people owe you ${format(part.amountMinor)}`;
+    }
+    case "owe": {
+      const [a, b] = part.people;
+      if (part.people.length === 1) return `You owe ${nameOf(a!.memberId)} ${format(part.amountMinor)}`;
+      if (part.people.length === 2) {
+        return `You owe ${nameOf(a!.memberId)} ${format(a!.amountMinor)} and ${nameOf(b!.memberId)} ${format(b!.amountMinor)}`;
+      }
+      return `You owe ${part.people.length} people ${format(part.amountMinor)}`;
+    }
     case "own":
       return "Just you";
     case "even":
@@ -159,7 +186,7 @@ export function keepThroughRefresh<T extends FeedPlaced>(older: readonly T[], pr
   return previousPage.length > 0 ? mergeFeed(older, previousPage) : [...older];
 }
 
-/** One payment of a group's settle-up plan (`suggestSettlements`), as the server sends it. */
+/** One payment of a group's settle-up plan (`pairwiseSettlements`), as the server sends it. */
 type Transfer = { fromMemberId: string; toMemberId: string; amountMinor: number };
 
 /** The viewer's part in a payment: they pay it, they get it, or it's between others. */

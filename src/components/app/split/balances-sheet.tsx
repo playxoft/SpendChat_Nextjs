@@ -15,9 +15,9 @@ import type { SettleTarget } from "./settle-dialog";
 import { TransferList } from "./who-pays-whom";
 
 /**
- * Balances and settling up: who pays whom — a short list of payments that
- * squares the group (matched greedily — few, not guaranteed the fewest), each
- * with "Mark as paid" for whoever may record it — then everyone's balance.
+ * Balances and settling up: who pays whom — person to person, each pair's
+ * shared bills netted (`groupDebts`), each with "Mark as paid" for whoever may
+ * record it — then everyone's balance.
  */
 export function BalancesSheet({
   open,
