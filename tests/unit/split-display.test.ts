@@ -13,6 +13,9 @@ import {
   myPartText,
   openPaymentsOf,
   payersLabel,
+  peopleNames,
+  planSummary,
+  planSummaryText,
   SETTLED_UP,
   transferRole,
   transferSentence,
@@ -292,5 +295,60 @@ describe("openPaymentsOf", () => {
     expect(openPaymentsOf(plan, "c")).toBe(2);
     expect(openPaymentsOf(plan, "z")).toBe(0);
     expect(openPaymentsOf([], "a")).toBe(0);
+  });
+});
+
+describe("the settle-up bar's summary", () => {
+  const names: Record<string, string> = { me: "Kumar", sen: "Senthil", nan: "Nantha", mut: "Muthumani", ravi: "Ravi" };
+  const nameOf = (id: string) => names[id] ?? "Someone";
+  const format = (minor: number) => `₹${minor / 100}`;
+  // The Goa trip: you pay Senthil; Nantha and Muthumani pay you and Senthil.
+  const goa = [
+    { fromMemberId: "nan", toMemberId: "sen", amountMinor: 50000 },
+    { fromMemberId: "mut", toMemberId: "sen", amountMinor: 50000 },
+    { fromMemberId: "me", toMemberId: "sen", amountMinor: 25000 },
+    { fromMemberId: "mut", toMemberId: "me", amountMinor: 25000 },
+    { fromMemberId: "nan", toMemberId: "me", amountMinor: 25000 },
+  ];
+
+  it("sums each side and counts the payments between others", () => {
+    expect(planSummary(goa, "me")).toEqual({
+      pay: { memberIds: ["sen"], amountMinor: 25000 },
+      receive: { memberIds: ["mut", "nan"], amountMinor: 50000 },
+      others: 2,
+    });
+    expect(planSummary(goa, "sen")).toEqual({
+      pay: { memberIds: [], amountMinor: 0 },
+      receive: { memberIds: ["nan", "mut", "me"], amountMinor: 125000 },
+      others: 2,
+    });
+  });
+
+  it("says whom you pay and who pays you, by name", () => {
+    expect(planSummaryText(planSummary(goa, "me"), format, nameOf)).toBe(
+      "You pay Senthil ₹250 · Muthumani and Nantha pay you ₹500",
+    );
+    expect(planSummaryText(planSummary(goa, "sen"), format, nameOf)).toBe("Nantha and 2 others pay you ₹1250");
+    expect(planSummaryText(planSummary(goa, "nan"), format, nameOf)).toBe("You pay Senthil and Kumar ₹750");
+    expect(planSummaryText(planSummary([goa[3]!], "me"), format, nameOf)).toBe("Muthumani pays you ₹250");
+  });
+
+  it("says when you're square, and when everyone is", () => {
+    expect(planSummaryText(planSummary(goa.slice(0, 2), "me"), format, nameOf)).toBe(
+      "You're settled up · 2 payments between others",
+    );
+    expect(planSummaryText(planSummary(goa.slice(0, 1), "me"), format, nameOf)).toBe(
+      "You're settled up · 1 payment between others",
+    );
+    expect(planSummaryText(planSummary([], "me"), format, nameOf)).toBe("All settled up");
+  });
+
+  it("names one person, two, or the first and a count — or just a count, short", () => {
+    expect(peopleNames(["Ravi"])).toBe("Ravi");
+    expect(peopleNames(["Ravi", "Asha"])).toBe("Ravi and Asha");
+    expect(peopleNames(["Ravi", "Asha", "Ben"])).toBe("Ravi and 2 others");
+    expect(peopleNames(["Ravi"], true)).toBe("Ravi");
+    expect(peopleNames(["Ravi", "Asha"], true)).toBe("2 people");
+    expect(peopleNames([])).toBe("");
   });
 });

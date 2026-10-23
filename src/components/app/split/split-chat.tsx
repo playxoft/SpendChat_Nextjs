@@ -57,7 +57,7 @@ import { SettleDialog, type SettleTarget } from "./settle-dialog";
 import { SplitComposer } from "./split-composer";
 import { SplitFeed } from "./split-feed";
 import { UpdateEntryDialog, type UpdateEntryTarget } from "./update-entry-dialog";
-import { WhoPaysWhom } from "./who-pays-whom";
+import { WhoPaysWhomBar } from "./who-pays-whom";
 import { AccountControls } from "@/components/app/account-controls";
 
 type Confirm =
@@ -355,7 +355,7 @@ export function SplitChat({
           </DropdownMenu>
           <AccountControls />
         </div>
-        <WhoPaysWhom detail={detail} viewer={viewer} locale={locale} onSettle={setSettle} />
+        <WhoPaysWhomBar detail={detail} viewer={viewer} locale={locale} onOpen={() => setBalancesOpen(true)} />
       </header>
 
       <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-4">

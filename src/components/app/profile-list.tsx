@@ -427,7 +427,7 @@ export function ProfileList({
           stop that does nothing is worse than none, and the phone sheet would
           focus it on open and pop the tooltip. The name is whole in the text,
           so a screen reader hears all of it. */}
-      <div className="flex min-w-0 px-3 pt-2">
+      <div className="flex min-w-0 px-3">
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="flex min-w-0 items-center gap-2 py-1 text-sm font-medium text-foreground">

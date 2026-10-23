@@ -1,11 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight, ArrowRightLeft, Check, ChevronDown, CircleCheck } from "lucide-react";
+import { ArrowRight, ArrowRightLeft, Check, ChevronRight, CircleCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/money";
 import { canRecordSettlement, type SplitViewer } from "@/lib/split-access";
-import { transferSentence, transfersForViewer, type TransferRole } from "@/lib/split-display";
+import {
+  peopleNames,
+  planSummary,
+  planSummaryText,
+  transferSentence,
+  transfersForViewer,
+  type TransferRole,
+} from "@/lib/split-display";
 import { cn } from "@/lib/utils";
 import type { SplitGroupDetail } from "@/services/split";
 import { MemberAvatar } from "./member-avatar";
@@ -184,104 +191,117 @@ function SubHeading({ children }: { children: React.ReactNode }) {
   return <p className="bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">{children}</p>;
 }
 
-/** How many of the viewer's own payments the folded card shows: three, two on a phone. */
-const FOLDED_ROWS = 3;
+/** One side's people on the bar: the names, cut to a count on a phone when there are several. */
+function Names({ names }: { names: string[] }) {
+  const long = peopleNames(names);
+  const short = peopleNames(names, true);
+  return (
+    <span className="min-w-0 truncate font-semibold text-foreground">
+      {short === long ? (
+        long
+      ) : (
+        <>
+          <span className="sm:hidden">{short}</span>
+          <span className="max-sm:hidden">{long}</span>
+        </>
+      )}
+    </span>
+  );
+}
 
 /**
- * "Who pays whom" as a card under the group's header, on every screen size.
- * Folded, it shows the viewer's own payments (up to three, two on a phone) as full rows with
- * "Mark as paid", or says they're square; "Show all" unfolds every payment in
- * the group. Settled, it says so; before anything is added it isn't shown.
+ * "Who pays whom" as one thin bar under the group's header, on every screen
+ * size: the viewer's own part in a line — "You pay **Senthil** ₹250 ·
+ * **Nantha and Muthumani** pay you ₹500" (a line per side on a phone, with a
+ * count for several people) — the amounts always in view, the names giving way
+ * first; or "You're settled up" / "All settled up". Pressing it
+ * opens the whole plan, with "Mark as paid", in the balances panel. Before
+ * anything is added it isn't shown.
  */
-export function WhoPaysWhom({
+export function WhoPaysWhomBar({
   detail,
   viewer,
   locale,
-  onSettle,
+  onOpen,
 }: {
   detail: SplitGroupDetail;
   viewer: SplitViewer;
   locale: string;
-  onSettle: (target: SettleTarget) => void;
+  onOpen: () => void;
 }) {
-  const [open, setOpen] = React.useState(false);
-  const panelId = React.useId();
   if (!detail.hasActivity) return null;
 
-  const lines = transferLines(detail, viewer, locale);
-  const mine = lines.filter((l) => l.role !== "other");
-  // The card sits under the header row, its edges in line with the row's content.
-  const frame = "mx-auto max-w-3xl px-2 pb-2 sm:px-4";
+  const names = new Map(detail.members.map((m) => [m.id, m.name]));
+  const nameOf = (id: string) => names.get(id) || "Someone";
+  const format = (minor: number) => formatMoney(minor, detail.group.currency, locale);
+  const summary = planSummary(detail.suggestions, viewer.memberId);
+  const { pay, receive, others } = summary;
+  const count = detail.suggestions.length;
+  const square = pay.memberIds.length === 0 && receive.memberIds.length === 0;
+  const muted = "shrink-0 text-muted-foreground";
 
-  if (lines.length === 0) {
-    return (
-      <div className={frame}>
-        <p className="flex items-center gap-2 rounded-xl border bg-card px-3 py-2.5 text-sm shadow-xs">
-          <CircleCheck aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-          <span className="font-medium">All settled up</span>
-          <span className="text-muted-foreground">— nobody owes anyone</span>
-        </p>
-      </div>
-    );
-  }
-
-  const folded = mine.slice(0, FOLDED_ROWS);
-  // A phone folds to two rows, so it may need "Show all" where a wider screen doesn't.
-  const moreOnPhone = lines.length > Math.min(folded.length, FOLDED_ROWS - 1);
-  const moreOnWide = lines.length > folded.length;
-  // Unfolded only while there's more to show — after a payment or a resize the
-  // list can shrink under the toggle, and the card shouldn't stay open without one.
-  const expanded = open && moreOnPhone;
   return (
-    <div className={frame}>
-      <section aria-labelledby={`${panelId}-title`} className="overflow-hidden rounded-xl border bg-card shadow-xs">
-        <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted">
-            <ArrowRightLeft aria-hidden className="size-3.5" />
-          </span>
-          <h2 id={`${panelId}-title`} className="text-sm font-semibold">
-            Who pays whom
-          </h2>
-          <span className="min-w-0 truncate text-xs text-muted-foreground">
-            {lines.length === 1 ? "1 payment" : `${lines.length} payments`}
-            <span className="max-sm:hidden"> settle everyone</span>
-          </span>
-          {moreOnPhone && (
-            <button
-              type="button"
-              aria-expanded={expanded}
-              aria-controls={panelId}
-              onClick={() => setOpen(!expanded)}
-              className={cn(
-                "ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
-                !moreOnWide && !expanded && "sm:hidden",
+    <div className="mx-auto max-w-3xl px-2 pb-2 sm:px-4">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${planSummaryText(summary, format, nameOf)} — see who pays whom`}
+        className="flex min-h-10 w-full min-w-0 items-center gap-2 rounded-lg border bg-card px-3 py-1.5 text-left text-sm shadow-xs transition-colors outline-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      >
+        {square ? (
+          <CircleCheck aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+        ) : (
+          <ArrowRightLeft aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+        )}
+        <span className="shrink-0 font-medium max-sm:hidden">Who pays whom</span>
+        <span aria-hidden className="h-4 w-px shrink-0 bg-border max-sm:hidden" />
+        <span
+          aria-hidden
+          className="flex min-w-0 flex-1 items-center gap-1.5 whitespace-nowrap max-sm:flex-col max-sm:items-start max-sm:gap-0.5"
+        >
+          {pay.memberIds.length > 0 && (
+            <span className="flex max-w-full min-w-0 items-center gap-1">
+              <span className={muted}>You pay</span>
+              <Names names={pay.memberIds.map(nameOf)} />
+              <span className="shrink-0 font-semibold tabular-nums">{format(pay.amountMinor)}</span>
+            </span>
+          )}
+          {pay.memberIds.length > 0 && receive.memberIds.length > 0 && <span className={cn(muted, "max-sm:hidden")}>·</span>}
+          {receive.memberIds.length > 0 && (
+            <span className="flex max-w-full min-w-0 items-center gap-1">
+              <Names names={receive.memberIds.map(nameOf)} />
+              <span className={muted}>{receive.memberIds.length === 1 ? "pays you" : "pay you"}</span>
+              <span className="shrink-0 font-semibold text-emerald-700 tabular-nums dark:text-emerald-400">
+                {format(receive.amountMinor)}
+              </span>
+            </span>
+          )}
+          {square && (
+            <span className="max-w-full min-w-0 truncate">
+              {others > 0 ? (
+                <>
+                  <span className="font-medium">You&apos;re settled up</span>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    · {others} {others === 1 ? "payment" : "payments"} between others
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="font-medium">All settled up</span>
+                  <span className="text-muted-foreground"> — nobody owes anyone</span>
+                </>
               )}
-            >
-              {expanded ? "Show less" : "Show all"}
-              <ChevronDown aria-hidden className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
-            </button>
+            </span>
           )}
-        </div>
-        <div id={panelId}>
-          {expanded ? (
-            <div className="max-h-[45vh] space-y-2 overflow-y-auto px-3 pt-1 pb-3">
-              <TransferGroups lines={lines} onSettle={onSettle} />
-              <p className="text-xs text-muted-foreground">{FOOTNOTE}</p>
-            </div>
-          ) : folded.length > 0 ? (
-            <ul className="divide-y pb-1">
-              {folded.map((l, i) => (
-                <TransferRow key={l.key} line={l} onSettle={onSettle} className={cn(i === FOLDED_ROWS - 1 && "max-sm:hidden")} />
-              ))}
-            </ul>
-          ) : (
-            <p className="flex items-center gap-2 px-3 pt-0.5 pb-2.5 text-sm text-muted-foreground">
-              <CircleCheck aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-              You&apos;re settled up — the rest is between others.
-            </p>
-          )}
-        </div>
-      </section>
+        </span>
+        {count > 0 && !square && (
+          <span className="shrink-0 text-xs text-muted-foreground max-sm:hidden">
+            {count === 1 ? "1 payment" : `${count} payments`}
+          </span>
+        )}
+        <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+      </button>
     </div>
   );
 }

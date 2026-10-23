@@ -40,7 +40,7 @@ export function AppSidebar({
 
   return (
     <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r bg-background md:flex print:hidden">
-      <div className="flex h-14 shrink-0 items-center px-5">
+      <div className="flex h-12 shrink-0 items-center px-5">
         <Link href={hrefWithProfile("/app", profile)} aria-label="Tracker">
           <Logo />
         </Link>

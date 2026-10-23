@@ -57,7 +57,7 @@ export function BalancesSheet({
             </div>
           </SheetDescription>
         </SheetHeader>
-        <div className="space-y-6 overflow-y-auto px-4 pb-6">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-6">
           <section aria-labelledby="split-balances-settle" className="space-y-2">
             <h3 id="split-balances-settle" className="text-sm font-medium">
               Who pays whom

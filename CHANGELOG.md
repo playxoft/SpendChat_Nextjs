@@ -34,12 +34,13 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   the workspace with access to that space. Someone who's already in the
   workspace just gets this space added; their other spaces and their role stay
   as they are.
-- **"Who pays whom" in Split bills.** A card right under the group's header
-  shows your own payments as full rows: both people's faces, "You pay **Ravi**"
-  or "**Asha** pays you", the amount, and "Mark as paid". "Show all" opens every
-  payment in the group, including the ones between other people. Everyone sees
-  the same list, so anyone can check it, and the card says "All settled up" once
-  everyone is square.
+- **"Who pays whom" in Split bills.** A thin bar right under the group's
+  header sums up your part: "You pay **Senthil** ₹250 · **Nantha and
+  Muthumani** pay you ₹500", the amounts always visible (on a phone, one line
+  each). Tap it and the balances panel opens on the right with every payment in
+  the group, including the ones between other people: both people's faces, the
+  amount and "Mark as paid". Everyone sees the same list, so anyone can check
+  it, and the bar says "All settled up" once everyone is square.
 - **People in Split bills no longer need an email.** Add someone by name only
   and keep track of their share yourself. They're on every expense and balance
   like anyone else, but nobody gets an invite. An email can't be added to them
@@ -67,8 +68,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   Hovering or tapping it opens the list of your workspaces, with New workspace
   and Workspace settings. Your plan and Upgrade come right under it. `G` still
   opens the workspace picker.
-- **The sidebar shows which workspace you're in.** Its icon and name sit above
-  your spaces, and the full name shows on hover.
+- **The sidebar shows which workspace you're in.** Its icon and name sit just
+  under the SpendChat logo, above your spaces, and the full name shows on hover.
 - **Keyboard shortcuts show as one chip**, "⇧1" rather than "⇧" and "1" side by
   side, so they take half the room.
 - **The sidebar section is called Spaces**, written normally rather than in

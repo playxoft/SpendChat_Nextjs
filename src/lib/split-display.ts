@@ -234,6 +234,70 @@ export function transfersForViewer<T extends Transfer>(
   return [...withRole.filter((t) => t.role !== "other"), ...withRole.filter((t) => t.role === "other")];
 }
 
+/** One side of the viewer's part in a settle-up plan: the people, in the plan's order, and the total. */
+export type PlanSide = { memberIds: string[]; amountMinor: number };
+
+/**
+ * The viewer's part of a group's settle-up plan, summed per side — whom they
+ * pay, who pays them — and how many payments are between other people: what
+ * the bar above a group's chat says before it's opened.
+ */
+export function planSummary(
+  transfers: readonly Transfer[],
+  viewerMemberId: string,
+): { pay: PlanSide; receive: PlanSide; others: number } {
+  const pay: PlanSide = { memberIds: [], amountMinor: 0 };
+  const receive: PlanSide = { memberIds: [], amountMinor: 0 };
+  let others = 0;
+  for (const t of transfers) {
+    const role = transferRole(t, viewerMemberId);
+    if (role === "pay") {
+      pay.memberIds.push(t.toMemberId);
+      pay.amountMinor += t.amountMinor;
+    } else if (role === "receive") {
+      receive.memberIds.push(t.fromMemberId);
+      receive.amountMinor += t.amountMinor;
+    } else {
+      others += 1;
+    }
+  }
+  return { pay, receive, others };
+}
+
+/**
+ * A side's people by name — "Ravi", "Ravi and Asha", "Ravi and 2 others" — or,
+ * `short`, a count past one ("2 people") for where a phone has little room.
+ */
+export function peopleNames(names: readonly string[], short = false): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (short) return `${names.length} people`;
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names[0]} and ${names.length - 1} others`;
+}
+
+/**
+ * The plan summary in words: "You pay Ravi ₹500 · Asha and Ben pay you ₹300",
+ * "You're settled up · 2 payments between others", "All settled up".
+ */
+export function planSummaryText(
+  summary: ReturnType<typeof planSummary>,
+  format: (minor: number) => string,
+  nameOf: (memberId: string) => string,
+): string {
+  const { pay, receive, others } = summary;
+  const parts: string[] = [];
+  if (pay.memberIds.length > 0) {
+    parts.push(`You pay ${peopleNames(pay.memberIds.map(nameOf))} ${format(pay.amountMinor)}`);
+  }
+  if (receive.memberIds.length > 0) {
+    const verb = receive.memberIds.length === 1 ? "pays" : "pay";
+    parts.push(`${peopleNames(receive.memberIds.map(nameOf))} ${verb} you ${format(receive.amountMinor)}`);
+  }
+  if (parts.length > 0) return parts.join(" · ");
+  if (others > 0) return `You're settled up · ${others} ${others === 1 ? "payment" : "payments"} between others`;
+  return "All settled up";
+}
+
 /**
  * A payment in words from the viewer's side, before the amount: "You pay
  * Ravi", "Asha pays you", "Ravi pays Asha".
