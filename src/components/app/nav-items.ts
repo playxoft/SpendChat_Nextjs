@@ -33,7 +33,8 @@ export const navItems = [
 export const splitNavItem = {
   id: "split",
   href: "/app/split",
-  label: "Split",
+  // "Split bills" in the UI; `split` everywhere in code (routes, ids, tables).
+  label: "Split bills",
   icon: Split,
   exact: false,
   shortcut: comboFor("nav.split"),

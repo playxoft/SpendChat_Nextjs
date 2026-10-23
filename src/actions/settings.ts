@@ -170,6 +170,24 @@ export async function dismissInviteNudge(): Promise<ActionResult> {
 }
 
 /**
+ * The first-visit product tour was finished or skipped. Revalidates the
+ * tracker because its one-time cards wait for the tour (see the page), so the
+ * refreshed page is what brings them in.
+ */
+export async function finishProductTour(): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "finishProductTour",
+    async () => {
+      await settingsService.finishProductTour(user.id);
+      revalidatePath("/app");
+      return {};
+    },
+    { userId: user.id, rateLimit: "read" },
+  );
+}
+
+/**
  * Save how the sidebar's sections are arranged. No revalidation, like the
  * folded spaces: the sidebar already shows the new order.
  */

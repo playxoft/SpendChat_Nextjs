@@ -8,7 +8,7 @@ import { SplitHome } from "@/components/app/split/split-home";
 export const dynamic = "force-dynamic";
 
 // Private app page (robots-disallowed under /app) — a title is all it needs.
-export const metadata: Metadata = { title: "Split" };
+export const metadata: Metadata = { title: "Split bills" };
 
 /**
  * Split home: invitations waiting for an answer, then every group the user has

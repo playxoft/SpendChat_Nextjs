@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { userSettings } from "@/db/schema";
 import { setCollapsedSpaces, setSidebarNav, updateComposerDensity } from "@/actions/settings";
 import { defaultSidebarNav } from "@/lib/sidebar-nav";
-import { normalizeUiPrefs } from "@/lib/validation";
+import { NEW_USER_UI_PREFS, normalizeUiPrefs } from "@/lib/validation";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 import { bootstrapUser } from "./helpers/seed";
@@ -32,6 +32,7 @@ describe("setCollapsedSpaces", () => {
     expect((await updateComposerDensity("compact")).ok).toBe(true);
     expect((await setCollapsedSpaces([B, A])).ok).toBe(true);
     expect(await prefsOf("sb1")).toEqual({
+      ...NEW_USER_UI_PREFS,
       composer: { density: "compact" },
       sidebar: { collapsedSpaces: [B, A] },
     });
@@ -63,7 +64,8 @@ describe("setCollapsedSpaces", () => {
     await bootstrapUser("sb4");
     const res = await setCollapsedSpaces(["not-a-uuid"]);
     expect(res.ok).toBe(false);
-    expect(await prefsOf("sb4")).toEqual({});
+    // Untouched: still what a new account starts with.
+    expect(await prefsOf("sb4")).toEqual(NEW_USER_UI_PREFS);
   });
 });
 
@@ -77,7 +79,7 @@ describe("setSidebarNav", () => {
       more: ["split"],
     };
     expect((await setSidebarNav(layout)).ok).toBe(true);
-    expect(await prefsOf("sn1")).toEqual({ sidebar: { collapsedSpaces: [A], nav: layout } });
+    expect(await prefsOf("sn1")).toEqual({ ...NEW_USER_UI_PREFS, sidebar: { collapsedSpaces: [A], nav: layout } });
     // Saving the folded spaces again leaves the arrangement alone.
     expect((await setCollapsedSpaces([B])).ok).toBe(true);
     expect(normalizeUiPrefs(await prefsOf("sn1")).sidebar).toEqual({ collapsedSpaces: [B], nav: layout });
@@ -98,6 +100,6 @@ describe("setSidebarNav", () => {
     await bootstrapUser("sn3");
     const res = await setSidebarNav({ main: "x" } as never);
     expect(res.ok).toBe(false);
-    expect(await prefsOf("sn3")).toEqual({});
+    expect(await prefsOf("sn3")).toEqual(NEW_USER_UI_PREFS);
   });
 });

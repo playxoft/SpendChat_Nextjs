@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.13.0.** Every API change bumps this version and is logged
+**API spec version: 6.14.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -586,22 +586,29 @@ negative when they **owe**.
 // SplitGroup — GET /split/groups
 { "id": "uuid", "name": "Goa trip", "icon": "🏖️" | null, "currency": "INR",
   "isCreator": true, "peopleCount": 4,          // invited + joined, you included (max 50)
-  "myBalanceMinor": -3333, "myBalance": "-33.33", "createdAt": "…" }
+  "myBalanceMinor": -3333, "myBalance": "-33.33",
+  "myOpenPayments": 1,                          // 6.14.0: your lines in `suggestions` — can be > 0 at a
+                                                // zero balance; "settled up" means this is 0 too
+  "createdAt": "…" }
 
 // SplitGroupDetail — GET /split/groups/{id}
 { "id": "uuid", "name": "Goa trip", "icon": null, "currency": "INR",
   "createdAt": "…", "updatedAt": "…",
   "me": { "memberId": "uuid", "isCreator": false },
-  "members": [                                  // active people, then former members who still have a balance
+  "members": [                                  // active people, then former members who still have a
+                                                // balance or a `suggestions` line
     { "id": "uuid", "name": "Ravi",
       "email": "ravi@x.com" | null,             // only for the creator, and on your own row
       "status": "invited" | "joined" | "left",
+      "nameOnly": false,                        // 6.14.0: added without an email — `invited`, but never
+                                                // invited (no email, no in-app invitation, no inviteLink)
       "isCreator": true, "isYou": false,
       "balanceMinor": 6666, "balance": "66.66",
       "inviteLink": "https://…/invite/split/<token>" | null } // creator only, for everyone still invited
                                                 // (account or not); works only for that email
   ],
-  "suggestions": [                              // payments that square everyone, biggest first
+  "suggestions": [                              // person to person: each pair's shared bills netted
+                                                // (less payments between them), biggest first
     { "fromMemberId": "uuid", "toMemberId": "uuid", "amountMinor": 3333, "amount": "33.33" }
   ],
   "peopleCount": 3, "maxPeople": 50,
@@ -634,7 +641,7 @@ negative when they **owe**.
   "currency": "INR", "inviterName": "Ravi" | null, "peopleCount": 4, "invitedAt": "…" }
 
 // SplitAddedPerson — returned to the creator when people are added
-{ "memberId": "uuid", "email": "zoe@x.com", "status": "invited" | "already" }
+{ "memberId": "uuid", "email": "zoe@x.com" | null, "status": "invited" | "already" | "added" }
 ```
 `status`: **`invited`** — they're in the group as invited. Deliberately the
 same whether or not the address has an account (an account holder sees an
@@ -642,7 +649,20 @@ in-app invitation; anyone else gets **one** email, within daily caps): nothing
 in the API tells the two apart, so adding people is no way to learn who uses
 SpendChat. Every invited person has an `inviteLink` for the creator to share.
 **`already`** — they were already in the group (the same inbox — `+tags` and
-Gmail dots don't make a new person).
+Gmail dots don't make a new person). **`added`** (6.14.0) — added **by name
+only** (no email sent): `email` is null and nobody is invited.
+
+**People by name only (6.14.0).** The email in `SplitPersonInput` is optional.
+Without one, the person is in the group under their name: on expenses (as payer
+or in a split), payments and balances exactly like an invitee who hasn't joined
+— their member `status` is `invited`, with `nameOnly: true`, `email: null` and
+`inviteLink: null` for every viewer. Nobody is emailed or sees an invitation;
+they count toward the 50-person cap and the 100-people-a-day adds like anyone,
+and can be removed once settled up. Each one is a new person (two may share a
+name); there's no way yet to add an email to them later. Adding them again
+with an email adds a *second* person — the name-only one keeps their shares and
+balance, so settle it up and remove it if that's the intent. Show them as
+"Not invited — no email" rather than "Invited".
 
 ### Trash models (6.7.0)
 ```jsonc
@@ -1119,13 +1139,13 @@ records payments. Ids in paths are uuids; a malformed one is a 404.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `GET /split/groups` | — | 200 `data: SplitGroup[]` | Groups you've joined, newest first |
-| `POST /split/groups` | `{ name, icon?, currency, members?: [{ email, name }] }` | 201 `data: { group: SplitGroupDetail, added: SplitAddedPerson[] }` | You become the creator. ≤ 49 people (50 with you). Same refusals as adding people (below); **429 `rate_limited`** past 20 new groups in 24 h (deleted ones count) |
+| `POST /split/groups` | `{ name, icon?, currency, members?: [{ name, email? }] }` | 201 `data: { group: SplitGroupDetail, added: SplitAddedPerson[] }` | You become the creator. ≤ 49 people (50 with you). Same refusals as adding people (below); **429 `rate_limited`** past 20 new groups in 24 h (deleted ones count) |
 | `GET /split/groups/{id}` | — | 200 `data: SplitGroupDetail` | 404 unless you've joined |
 | `PATCH /split/groups/{id}` | `{ name?, icon?, currency? }` (≥ 1; `icon: null`/`""` clears) | 200 `data: SplitGroupDetail` | Creator only. Currency only while there are no expenses or payments (409 `conflict`) |
 | `DELETE /split/groups/{id}` | — | 200 `data: { deleted: true }` | Creator only. Everything in the group goes; shares already added to workspaces stay there |
-| `POST /split/groups/{id}/members` | `{ members: [{ email, name }] }` (1–49) | 200 `data: { group, added }` | Creator only. Account holders get an in-app invitation, anyone else one email — the response is `invited` either way. Someone you removed is re-invited on the same member id. Refused as a whole, before anything is written: 400 your own address (any spelling); 422 two spellings of one inbox; **409 `invite_cooldown`** someone who declined or left in the last 30 days (`details: { emails, until }`); **409 `conflict`** an inbox you already have 3 open invitations out to (`details: { emails }`); **429 `rate_limited`** past 100 people added in 24 h across your groups; **409 `split_group_full`** past 50 people (the creator included, every plan) |
-| `DELETE /split/groups/{id}/members/{memberId}` | — | 200 `data: { removed: true }` | Creator only. **409 `settle_first`** while they have a balance; 400 yourself |
-| `POST /split/groups/{id}/leave` | — | 200 `data: { left: true }` | **409 `settle_first`** while you have a balance; 400 for the creator (delete instead) |
+| `POST /split/groups/{id}/members` | `{ members: [{ name, email? }] }` (1–49) | 200 `data: { group, added }` | Creator only. Account holders get an in-app invitation, anyone else one email — the response is `invited` either way. No email (absent, `null` or `""`) adds them by name only — `added`, nobody invited (6.14.0). Someone you removed is re-invited on the same member id. Refused as a whole, before anything is written: 400 your own address (any spelling); 422 two spellings of one inbox; **409 `invite_cooldown`** someone who declined or left in the last 30 days (`details: { emails, until }`); **409 `conflict`** an inbox you already have 3 open invitations out to (`details: { emails }`); **429 `rate_limited`** past 100 people added in 24 h across your groups; **409 `split_group_full`** past 50 people (the creator included, every plan) |
+| `DELETE /split/groups/{id}/members/{memberId}` | — | 200 `data: { removed: true }` | Creator only. **409 `settle_first`** while they owe or are owed anyone (any `suggestions` line names them); 400 yourself |
+| `POST /split/groups/{id}/leave` | — | 200 `data: { left: true }` | **409 `settle_first`** while any `suggestions` line names you; 400 for the creator (delete instead) |
 | `GET /split/groups/{id}/expenses?limit=&offset=` | — | 200 `data: SplitExpense[]`, `meta: { total, limit, offset, currency: CurrencyMeta }` | Newest first (`occurredOn`, then created) |
 | `POST /split/groups/{id}/expenses` | `{ title, amount, payers \| paidBy, occurredOn, splitType, memberIds \| shares }` | 201 `data: SplitExpense` | Any joined member. Who paid: `payers: [{ memberId, amount? }]` (several people; amounts for all — summing to `amount` — or for none, which divides it evenly by join order) or the older single `paidBy` — one of the two. Each payer is credited what they paid in balances. `equal` → `memberIds`; `exact` → `shares: [{ memberId, amount }]` summing to `amount`; `percent` → `shares: [{ memberId, percent }]` (≤ 2 dp) summing to 100. **The server computes every share.** Rounding: `equal` → leftover minor units go to the (main) payer first — whoever paid the most — then by join order; `percent` → shares rounded down, leftovers to the largest remainders first (ties: payer, then join order); `exact` → as entered. 422 for bad sums (neutral `message`; `details: { sumMinor, totalMinor }`, `{ bpSum }` or `{ paidSumMinor, totalMinor }`), both or neither of `payers`/`paidBy`, someone not in the group, or an amount that rounds to 0 minor units (¥0.4) |
 | `GET /split/groups/{id}/expenses/{expenseId}` | — | 200 `data: SplitExpense` | |
@@ -1271,8 +1291,9 @@ filename extension).
 Split (6.9.0):
 `SplitGroupInput` — `{ name (1–40, trimmed), icon? (≤ 16, nullable), currency
 (a supported ISO code), members? (≤ 49 × SplitPersonInput, no email twice) }`.
-`SplitPersonInput` — `{ email (≤ 100, lowercased), name (1–40, required — it's
-what the group sees) }`.
+`SplitPersonInput` — `{ email? (≤ 100, lowercased; optional since 6.14.0 —
+absent, `null` or `""` adds them by name only), name (1–40, required — it's
+what the group sees) }`. "No email twice" ignores the blank ones.
 `SplitExpenseInput` — `{ title (1–40), amount (> 0, ≤ 999,999,999.99), payers
 (1–50 × { memberId, amount? (≥ 0) } — amounts for all or none) | paidBy (member
 uuid, the older one-payer shape), occurredOn (YYYY-MM-DD), splitType }` plus `memberIds` (1–50) for

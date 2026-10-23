@@ -59,6 +59,7 @@ import { usePermissions } from "./permissions";
 import { usePlan } from "./upgrade-dialog";
 import { LimitTooltip, LockBadge, useAddLimits } from "./limit-lock";
 import { Kbd } from "@/components/ui/kbd";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { reorderProfiles } from "@/actions/profiles";
 import { reorderSpaces } from "@/actions/spaces";
 import { useCollapsedSpaces } from "@/hooks/use-collapsed-spaces";
@@ -84,12 +85,15 @@ import {
   profileOrderAfterReorder,
   profileShortcut,
 } from "@/lib/sidebar-spaces";
-import { DEFAULT_SPACE_ICON } from "@/lib/validation";
+import { DEFAULT_SPACE_ICON, DEFAULT_WORKSPACE_ICON } from "@/lib/validation";
 import { addLock, type AddLock } from "@/lib/add-limits";
 import { cn } from "@/lib/utils";
 import type { Profile, WorkspaceRole } from "@/db/schema";
 
 export type SidebarProfile = Pick<Profile, "id" | "name" | "icon" | "spaceId">;
+
+/** The current workspace as the sidebar labels it, above the spaces. */
+export type SidebarWorkspace = { name: string; icon: string | null };
 
 /** A space as the sidebar shows it — what `listSpaces` returns. */
 export type SidebarSpace = {
@@ -140,7 +144,8 @@ function markClasses({ selected, multi, armed }: RowMark): string {
 }
 
 /**
- * The sidebar's profile tree: the workspace's spaces as collapsible groups
+ * The sidebar's profile tree, under a label naming the current workspace (its
+ * icon and name): the workspace's spaces as collapsible groups
  * (Notion-style), each holding its profiles, then "All profiles". Members see
  * only the spaces `listSpaces` gives them; workspace admins see every space and
  * get the create / rename / reorder / access / delete controls.
@@ -163,9 +168,13 @@ export function ProfileList({
   collapsedSpaces,
   onNavigate,
   enableShortcuts = false,
+  workspace,
 }: {
   profiles: P[];
   spaces: SidebarSpace[];
+  /** The current workspace, labelled above the Spaces heading — the switcher
+   *  lives in the account menu, so nothing else on screen says which one this is. */
+  workspace: SidebarWorkspace;
   /** `ui_prefs.sidebar.collapsedSpaces` — folded spaces, across every workspace. */
   collapsedSpaces: string[];
   onNavigate?: () => void;
@@ -412,11 +421,36 @@ export function ProfileList({
             <ProfileShortcutBinding key={p.id} combo={profileShortcut(i)} onFire={() => go(p.id)} />
           ))}
 
+      {/* Which workspace this is: a label, not a control — switching is in the
+          account menu (or `g`). One line; the tooltip spells out a name the
+          sidebar cuts short. Not focusable, like the tag list's chips: a tab
+          stop that does nothing is worse than none, and the phone sheet would
+          focus it on open and pop the tooltip. The name is whole in the text,
+          so a screen reader hears all of it. */}
+      <div className="flex min-w-0 px-3">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex min-w-0 items-center gap-2 py-1 text-sm font-medium text-foreground">
+              <span aria-hidden className="shrink-0 text-base leading-none">
+                {workspace.icon ?? DEFAULT_WORKSPACE_ICON}
+              </span>
+              <span className="truncate">
+                <span className="sr-only">Workspace: </span>
+                {workspace.name}
+              </span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="start" sideOffset={4}>
+            {workspace.name}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+
       {/* One height whatever sits on the right (add buttons, the selection, nothing), so the list never shifts. */}
-      <div className="flex min-h-9 items-center justify-between gap-2 px-3 pt-2 pb-1">
-        <span className="shrink-0 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          Profiles
-        </span>
+      <div className="flex min-h-9 items-center justify-between gap-2 px-3 pt-1 pb-1">
+        {/* "Spaces", not "Profiles": the tree's top level is the spaces (with
+            their profiles inside), and spaces are what the plans count. */}
+        <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">Spaces</span>
         <div className="flex min-w-0 items-center gap-0.5">
           {/* Touch has no Shift: "Select" turns taps into toggles instead. */}
           <Button

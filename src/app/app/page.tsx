@@ -41,6 +41,7 @@ import { TransactionComposer } from "@/components/app/transaction-composer";
 import { TrackerActions } from "@/components/app/tracker-actions";
 import { ViewerNotice } from "@/components/app/viewer-notice";
 import { OnboardingCards } from "@/components/app/onboarding-cards";
+import { ProductTour } from "@/components/app/product-tour";
 import { ProfileSwitcher } from "@/components/app/profile-switcher";
 import { ProfileSwipe } from "@/components/app/profile-swipe";
 import { AccountControls } from "@/components/app/account-controls";
@@ -166,6 +167,11 @@ export default async function ChatPage({
     workspace.role === "admin" &&
     !uiPrefs.onboarding.inviteNudgeDismissed &&
     accountAgeDays >= 1;
+  // A new account's first visit opens the product tour (only a new account's
+  // bootstrap sets the flag). The cards wait for it: one thing at a time, and
+  // the tour first. Ending the tour revalidates this page, and the cards' key
+  // remounts them with the answer — they read their props only on mount.
+  const tourPending = canWrite && uiPrefs.onboarding.tourPending;
 
   const timeZone = await getTimeZone();
   const today = todayISO(timeZone);
@@ -250,8 +256,9 @@ export default async function ChatPage({
         <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-4">
           {canWrite && (
             <OnboardingCards
-              askHeardFrom={!heardFromAnswered}
-              showInviteNudge={showInviteNudge}
+              key={tourPending ? "tour" : "cards"}
+              askHeardFrom={!heardFromAnswered && !tourPending}
+              showInviteNudge={showInviteNudge && !tourPending}
             />
           )}
           <Suspense key={streamKey} fallback={<ChatFeedSkeleton />}>
@@ -294,6 +301,9 @@ export default async function ChatPage({
 
         {/* Mobile: swipe left/right across the tracker to change profile. */}
         <ProfileSwipe profiles={profiles} filterProfileId={filterProfileId} />
+
+        {/* Opens itself on a first visit; "Take the tour" in the account menu replays it. */}
+        <ProductTour autoStart={tourPending} />
       </div>
       </FeedJumpProvider>
       </ActiveMonthProvider>

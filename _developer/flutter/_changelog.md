@@ -19,6 +19,56 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.14.0 — 2026-10-22
+
+Additive. **Split: a person's email is optional.**
+
+- `SplitPersonInput.email` (in `POST /split/groups` `members` and
+  `POST /split/groups/{id}/members`) may be absent, `null` or `""`: the person
+  is added **by name only**. They're in the group for expenses (payer or
+  share), payments and balances exactly like an invitee who hasn't joined —
+  but they're never invited: no email, no in-app invitation, no join link.
+  They count toward the 50-person cap and the 100-people-a-day adds. Two
+  name-only people may share a name; "no email twice" ignores blank ones.
+- `SplitAddedPerson.email` is now nullable, and `status` gains **`added`** — a
+  name-only person (nobody was invited).
+- `SplitMember` gains **`nameOnly: boolean`**: `true` for a name-only person,
+  whose `status` stays `invited` with `email: null` and `inviteLink: null` —
+  for every viewer.
+
+**Flutter impact:** none required — an old client keeps working: it always
+sends an email, so it never gets `added`, and a name-only member (added on the
+web) reads as an `invited` member with no email and no invite link. To support it: make the email field optional in "add
+people" (send no email, or `null`), accept `email: null` and `status: "added"`
+in `SplitAddedPerson`, and show a member with `nameOnly: true` as "Not invited —
+no email" instead of "Invited" (no "Copy invite link").
+
+Also in this release, with **no shape change** — **`suggestions` are now
+person to person.** `GET /split/groups/{id}` used to match balances across the
+whole group, which could have someone pay a person they never shared a bill
+with (you paid lunch for four, Senthil paid dinner for four, and it had one
+friend pay you while another, who ate your lunch too, paid you nothing). Now
+each pair's debts come from the expenses they shared — an expense several people
+paid is matched inside it — netted against each other and against payments
+recorded between them: biggest first, at most one line per pair, and each
+member's lines add up to their `balanceMinor`. A group can show more lines than
+before. Leaving (`POST /split/groups/{id}/leave`) and removing someone now
+answer **409 `settle_first`** while any line names them, even at a zero balance
+overall. A former member stays in `members` while a line names them.
+`SplitGroup` (in `GET /split/groups`) gains **`myOpenPayments`**: your lines in
+the plan, which can be above 0 at a zero balance — "settled up" means both are 0.
+**Flutter impact:** none required — show the list as sent (don't re-derive it
+from balances), and expect `settle_first` at a zero balance. To match the web,
+show a zero balance with `myOpenPayments > 0` as "Even overall, N payments to
+settle" rather than "Settled up".
+
+Also in this release, with no contract change: a **new account** now starts with
+`Settings.inputMode: "combined"` (it was `amount_title`). Existing accounts keep
+theirs. **Flutter impact:** none, as long as the app already renders `combined`.
+The web app calls the feature "Split bills"; the API paths keep `split`.
+
+---
+
 ## 6.13.0 — 2026-10-14
 
 Additive. **Invoices and quotes** — free on every plan:

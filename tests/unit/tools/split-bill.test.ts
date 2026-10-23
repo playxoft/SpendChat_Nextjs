@@ -231,9 +231,11 @@ describe("computeLedger", () => {
       { id: "p0002", paidMinor: 60_000, shareMinor: 120_000, netMinor: -60_000 },
       { id: "p0003", paidMinor: 0, shareMinor: 120_000, netMinor: -120_000 },
     ]);
+    // Person to person: each pair's bills netted — never Chloe paying Asha for Ben's groceries.
     expect(ledger.payments).toEqual([
-      { from: "p0003", to: "p0001", amountMinor: 120_000 },
-      { from: "p0002", to: "p0001", amountMinor: 60_000 },
+      { from: "p0003", to: "p0001", amountMinor: 100_000 },
+      { from: "p0002", to: "p0001", amountMinor: 80_000 },
+      { from: "p0003", to: "p0002", amountMinor: 20_000 },
     ]);
   });
 
@@ -446,6 +448,19 @@ describe("splitImportSchema", () => {
     expect(splitImportSchema.safeParse(ok).success).toBe(true);
   });
 
+  it("takes people without an email (by name only), even two with one name", () => {
+    const parsed = splitImportSchema.parse({
+      ...ok,
+      people: [
+        ok.people[0],
+        { ref: "p0003", name: "Chloe", email: null },
+        { ref: "p0004", name: "Chloe", email: "" },
+        { ref: "p0005", name: "Dev" },
+      ],
+    });
+    expect(parsed.people.map((p) => p.email)).toEqual(["ben@example.com", null, null, null]);
+  });
+
   it("refuses duplicate keys, duplicate emails, bad keys and too many people", () => {
     expect(splitImportSchema.safeParse({ ...ok, people: [{ ...ok.people[0], ref: "p0001" }] }).success).toBe(false);
     expect(
@@ -592,6 +607,21 @@ describe("optional emails (draft v2)", () => {
     const input = buildImportInput({ draft: d, name: d.name, meId: "p0001", emails: { p0003: "c2@example.com" } });
     expect(input.name).toBe(UNNAMED_GROUP);
     expect(input.people.map((p) => p.email)).toEqual(["ben@example.com", "c2@example.com"]);
+  });
+
+  it("sends a blank email as none — that person comes in by name only", () => {
+    const d = draft({
+      people: [
+        { id: "p0001", name: "Asha" },
+        { id: "p0002", name: "Ben" },
+        { id: "p0003", name: "Chloe", email: "chloe@example.com" },
+      ],
+    });
+    const input = buildImportInput({ draft: d, name: d.name, meId: "p0001", emails: { p0003: "  " } });
+    expect(input.people.map((p) => p.email)).toEqual([null, null]);
+    expect(splitImportSchema.safeParse(input).success).toBe(true);
+    // The no-form screens promise to invite everyone, so a blank still means the form.
+    expect(readyToImport(d, "p0001", null)).toBe(false);
   });
 });
 

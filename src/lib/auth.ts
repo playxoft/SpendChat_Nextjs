@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { userSettings, workspaces } from "@/db/schema";
 import {
@@ -22,7 +22,7 @@ import {
   listUserWorkspaces,
   type WorkspaceSummary,
 } from "./workspaces";
-import { WORKSPACE_NAME_MAX } from "./validation";
+import { NEW_USER_INPUT_MODE, NEW_USER_UI_PREFS, WORKSPACE_NAME_MAX } from "./validation";
 
 export type SessionUser = {
   id: string;
@@ -113,9 +113,18 @@ export function defaultWorkspaceName(name?: string | null, email?: string | null
  */
 export async function ensureBootstrap(userId: string) {
   const db = getDb();
-  // Theme + input mode default at the DB level; currency/locale live on the
-  // workspace (seeded below with geo-detected defaults).
-  await db.insert(userSettings).values({ userId }).onConflictDoNothing();
+  // Theme defaults at the DB level; currency/locale live on the workspace
+  // (seeded below with geo-detected defaults). The composer starts as one
+  // field, compact — set here rather than as column defaults, so an account
+  // created before this keeps the layout it has (`onConflictDoNothing`).
+  await db
+    .insert(userSettings)
+    .values({
+      userId,
+      inputMode: NEW_USER_INPUT_MODE,
+      uiPrefs: sql`${JSON.stringify(NEW_USER_UI_PREFS)}::jsonb`,
+    })
+    .onConflictDoNothing();
 
   const ownWorkspace = await db.query.workspaces.findFirst({
     where: eq(workspaces.ownerId, userId),

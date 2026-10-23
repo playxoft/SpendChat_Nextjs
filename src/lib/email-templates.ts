@@ -643,8 +643,8 @@ export function inviteEmail(input: InviteEmailInput): RenderedEmail {
     button(recipientHasAccount ? `Open ${workspaceName}` : `Join ${workspaceName}`, joinUrl),
     recipientHasAccount
       ? richParagraph(
-          `The link opens the workspace in your account. You can also switch to it any time from the workspace menu in the sidebar (or press ${kbd("G")}).`,
-          `The link opens the workspace in your account. You can also switch to it any time from the workspace menu in the sidebar (or press G).`,
+          `The link opens the workspace in your account. You can also switch to it any time from the account menu — your picture, top right (or press ${kbd("G")}).`,
+          `The link opens the workspace in your account. You can also switch to it any time from the account menu — your picture, top right (or press G).`,
         )
       : richParagraph(
           `You'll need a free ${escapeHtml(name)} account with <b>${escapeHtml(recipientEmail)}</b> — the link takes you through creating one (Google, or email and a password) and drops you straight into the workspace. No bank connection, nothing to install.`,

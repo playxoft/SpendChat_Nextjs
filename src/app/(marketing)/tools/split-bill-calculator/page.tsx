@@ -29,7 +29,7 @@ const faqs = [
   },
   {
     q: "How does it work out who pays whom?",
-    a: "Everyone's balance is what they paid minus their share of everything. People who are owed money and people who owe it are then matched largest first, which gives a short list of payments that settles everyone — never more than one fewer than the number of people. It isn't guaranteed to be the shortest list possible, but it's the same list every time.",
+    a: "Everyone's balance is what they paid minus their share of everything. Then each pair of people is squared up on its own: what you owe a friend for the bills they paid is set against what they owe you for the bills you paid, and only the difference is paid. So nobody pays someone they never shared a bill with, and each pair makes at most one payment.",
   },
   {
     q: "Can I split a bill unequally?",
@@ -107,14 +107,14 @@ export default function SplitBillCalculatorPage() {
           <br />
           Chloe: paid 0 − share 1,200 = owes 1,200
           <br />
-          Settle up: Chloe pays Asha 1,200 · Ben pays Asha 600
+          Settle up: Chloe pays Asha 1,000 · Ben pays Asha 800 · Chloe pays Ben 200
         </Formula>
         <p>
-          Two payments instead of four: rather than Ben and Chloe each paying Asha back for the cabin
-          and Asha and Chloe each paying Ben for the groceries, the debts are netted first. The biggest
-          debt is matched with the biggest credit, then the next, so a group of any size settles in at
-          most one payment fewer than it has people. That&apos;s a short list, not always the shortest
-          one possible — finding that is a much harder puzzle, and rarely saves more than a payment.
+          Each pair of friends squares up on its own. Ben owes Asha 1,000 for the cabin and Asha owes
+          Ben 200 for the groceries, so only the difference changes hands: Ben pays Asha 800. Chloe pays
+          each of them back for what they bought her. Nobody is told to pay someone they never shared a
+          bill with, and every payment adds up to the balances above — Asha gets back 1,800, Ben pays
+          600 net, Chloe 1,200.
         </p>
       </ToolSection>
 
@@ -155,7 +155,7 @@ export default function SplitBillCalculatorPage() {
         </p>
         <p>
           <Link href={featureLink("split")} className={link}>
-            Split in SpendChat
+            Split bills in SpendChat
           </Link>{" "}
           keeps the group going. Everyone gets an invite — by email, or in the app if they already use SpendChat — and joins with a free account. Anyone can add
           what they paid for, and the balances update for the whole group — so nobody keeps the

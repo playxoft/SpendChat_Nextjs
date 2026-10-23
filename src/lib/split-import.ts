@@ -66,8 +66,11 @@ export type SplitImportInput = {
   currency: string;
   /** The person in the draft who is the signed-in caller — the group's creator. */
   me: { ref: string; name: string };
-  /** Everyone else, in draft order, each with the email the app needs to invite them. */
-  people: { ref: string; name: string; email: string }[];
+  /**
+   * Everyone else, in draft order, each with the email the app invites them
+   * at — or none (null), to bring them in by name only, never invited.
+   */
+  people: { ref: string; name: string; email: string | null }[];
   expenses: SplitImportExpense[];
 };
 

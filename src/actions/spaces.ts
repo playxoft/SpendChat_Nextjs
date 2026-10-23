@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as spaceService from "@/services/spaces";
-import type { SpaceAccess } from "@/services/spaces";
+import type { InviteToSpaceStatus, SpaceAccess } from "@/services/spaces";
 import type {
   CreateSpaceInput,
   DeleteSpaceInput,
+  InviteToSpaceInput,
   SetProfileOverrideInput,
   SetSpaceMemberInput,
   UpdateSpaceInput,
@@ -105,6 +106,26 @@ export async function setSpaceMember(id: string, input: SetSpaceMemberInput): Pr
       return {};
     },
     { userId: user.id, spaceId: id, memberId: input.userId, role: input.role },
+  );
+}
+
+/**
+ * "Invite someone" in a space's Members & access dialog — adds access to this
+ * space and never narrows what the person already has (see the service).
+ */
+export async function inviteToSpace(
+  id: string,
+  input: InviteToSpaceInput,
+): Promise<ActionResult<{ status: InviteToSpaceStatus }>> {
+  const user = await requireUser();
+  return runAction(
+    "inviteToSpace",
+    async () => {
+      const result = await spaceService.inviteToSpace(user.id, id, input);
+      revalidateApp();
+      return { status: result.status };
+    },
+    { userId: user.id, spaceId: id, role: input.role },
   );
 }
 

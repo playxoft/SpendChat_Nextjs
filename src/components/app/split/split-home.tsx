@@ -102,7 +102,7 @@ export function SplitHome({
       <div className="flex items-start gap-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
-            <h1 className="text-xl font-semibold tracking-tight">Split</h1>
+            <h1 className="text-xl font-semibold tracking-tight">Split bills</h1>
             <p className="text-sm text-muted-foreground">
               Share costs with anyone — no workspace needed. Everyone sees who owes whom.
             </p>
@@ -199,7 +199,12 @@ export function SplitHome({
                       <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                         {activityLine(g.lastActivity, g.currency, locale)}
                       </p>
-                      <BalanceChip netMinor={g.myNetMinor} currency={g.currency} locale={locale} />
+                      <BalanceChip
+                        netMinor={g.myNetMinor}
+                        currency={g.currency}
+                        locale={locale}
+                        openPayments={g.myOpenPayments}
+                      />
                     </div>
                   </div>
                 </Link>

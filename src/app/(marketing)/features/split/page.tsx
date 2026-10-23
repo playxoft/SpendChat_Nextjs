@@ -26,7 +26,7 @@ const MAX = SPLIT_GROUP_MAX_PEOPLE;
 
 const faqs = [
   {
-    q: "Is Split free?",
+    q: "Is Split bills free?",
     a: "Yes, on every plan, with nothing to unlock. A split group doesn't belong to a workspace, so it doesn't use any of your plan's limits, and the people you add don't need a paid plan either.",
   },
   {
@@ -35,7 +35,7 @@ const faqs = [
   },
   {
     q: "Do the people I add need an account?",
-    a: "To see the group, yes — a free one, with the email address you added them by. Someone who already has an account sees an invitation in the app; anyone else gets one email with a link to join. You can add expenses that include them before they join, so nobody waits on anybody.",
+    a: "Only to see the group themselves — a free one, with the email address you added them by. Someone who already has an account sees an invitation in the app; anyone else gets one email with a link to join. You can add expenses that include them before they join, so nobody waits on anybody. The email is optional: add someone by name only and you keep track of their share for them — they're on every expense and balance, but never invited.",
   },
   {
     q: "Can I split a bill unequally?",
@@ -43,7 +43,7 @@ const faqs = [
   },
   {
     q: "Does SpendChat send the money?",
-    a: "No. It works out who owes whom and a short list of payments that settles everyone. You pay each other however you normally do — cash, UPI, a bank transfer — and press “Mark as paid”, and the balances update for everyone.",
+    a: "No. It works out who owes whom, person to person — each pair’s bills netted, so it’s one payment per pair at most. You pay each other however you normally do — cash, UPI, a bank transfer — and press “Mark as paid”, and the balances update for everyone.",
   },
   {
     q: "Can a group use a different currency from my workspace?",
@@ -95,7 +95,7 @@ export default function SplitPage() {
         steps={[
           {
             title: "Start a group",
-            body: `Name it, pick its currency, and add people by name and email — up to ${MAX}, you included. Each gets an invite to join.`,
+            body: `Name it, pick its currency, and add people by name — up to ${MAX}, you included. Give an email and they get an invite to join; leave it out and you track their share for them.`,
           },
           {
             title: "Add what was spent",
@@ -103,7 +103,7 @@ export default function SplitPage() {
           },
           {
             title: "Settle up",
-            body: "SpendChat lists who pays whom — at most one payment fewer than there are people. When one happens, Mark as paid — and everyone's balance moves.",
+            body: "SpendChat lists who pays whom, person to person — each pair's bills netted, so it's one payment per pair at most. When one happens, Mark as paid — and everyone's balance moves.",
           },
         ]}
       />
@@ -141,19 +141,20 @@ export default function SplitPage() {
         </p>
       </FeatureSection>
 
-      <FeatureSection title="Settle up from one short list">
+      <FeatureSection title="Settle up person to person">
         <p>
           Four people and a dozen expenses could mean a dozen transfers. They
-          don&apos;t have to: SpendChat matches the biggest debt with the
-          biggest credit, then the next, so a group of n people never needs more
-          than n − 1 payments. It&apos;s a short list rather than a
-          guaranteed shortest one, and it&apos;s the same for everyone, every
-          time they open it.
+          don&apos;t have to: what you owe a friend for the bills they paid is
+          set against what they owe you for the bills you paid, and only the
+          difference changes hands — one payment per pair at most. Nobody is
+          told to pay someone they never shared a bill with, everyone&apos;s
+          payments add up to their balance, and the list is the same for
+          everyone, every time they open it.
         </p>
         <p>
           SpendChat doesn&apos;t move money. When someone pays — cash, UPI, a
           bank transfer — they press Mark as paid and the balances update for
-          the whole group. A group where every balance is zero reads Settled Up.
+          the whole group. When nobody owes anybody, the group reads Settled Up.
           People can leave, or be removed, once they&apos;re settled up, so a
           debt can&apos;t walk out of the group.
         </p>
@@ -164,7 +165,9 @@ export default function SplitPage() {
           Add people by name and email. Someone who already has a SpendChat
           account sees an invitation in the app; anyone else gets one email with
           a link to join, and joining is tied to the address you invited. Until
-          they join, you can still add expenses that include them.
+          they join, you can still add expenses that include them. Someone who
+          won&apos;t use the app? Add them by name only — they&apos;re on every
+          expense and balance, and nobody is invited.
         </p>
         <p>
           The person who starts the group runs it: they rename it, add and

@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import type * as React from "react";
 import {
   Sheet,
   SheetContent,
@@ -8,18 +8,21 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { formatMoney } from "@/lib/money";
-import { canRecordSettlement, type SplitViewer } from "@/lib/split-access";
+import type { SplitViewer } from "@/lib/split-access";
+import { openPaymentsOf } from "@/lib/split-display";
 import type { SplitGroupDetail } from "@/services/split";
 import { BalanceChip, BalanceText } from "./balance-text";
+import { focusBack } from "./focus-back";
 import { MemberAvatar } from "./member-avatar";
 import type { SettleTarget } from "./settle-dialog";
+import { TransferList } from "./who-pays-whom";
 
 /**
- * Balances and settling up, out of the chat's way: everyone's balance, then
- * a short list of payments that squares the group (matched greedily — few,
- * not guaranteed the fewest), each with "Mark as paid" for whoever may
- * record it.
+ * Balances and settling up: who pays whom — person to person, each pair's
+ * shared bills netted (`groupDebts`), each with "Mark as paid" for whoever may
+ * record it — then everyone's balance. Opened by state, with no trigger of its
+ * own, so `returnFocus` names the control that opened it: closing puts focus
+ * back there rather than on the page.
  */
 export function BalancesSheet({
   open,
@@ -28,6 +31,7 @@ export function BalancesSheet({
   viewer,
   locale,
   onSettle,
+  returnFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -35,9 +39,9 @@ export function BalancesSheet({
   viewer: SplitViewer;
   locale: string;
   onSettle: (target: SettleTarget) => void;
+  returnFocus?: React.RefObject<HTMLElement | null>;
 }) {
   const currency = detail.group.currency;
-  const names = new Map(detail.members.map((m) => [m.id, m.name]));
   const me = detail.members.find((m) => m.isYou);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -45,16 +49,29 @@ export function BalancesSheet({
         side="right"
         closeOnOutsideClick
         className="data-[side=right]:w-full data-[side=right]:sm:max-w-md"
+        onCloseAutoFocus={(e) => focusBack(e, returnFocus)}
       >
         <SheetHeader>
           <SheetTitle>Balances</SheetTitle>
           <SheetDescription asChild>
             <div>
-              <BalanceChip netMinor={me?.netMinor ?? 0} currency={currency} locale={locale} />
+              <BalanceChip
+                netMinor={me?.netMinor ?? 0}
+                currency={currency}
+                locale={locale}
+                openPayments={openPaymentsOf(detail.suggestions, detail.me.memberId)}
+              />
             </div>
           </SheetDescription>
         </SheetHeader>
-        <div className="space-y-6 overflow-y-auto px-4 pb-6">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 pb-6">
+          <section aria-labelledby="split-balances-settle" className="space-y-2">
+            <h3 id="split-balances-settle" className="text-sm font-medium">
+              Who pays whom
+            </h3>
+            <TransferList detail={detail} viewer={viewer} locale={locale} onSettle={onSettle} />
+          </section>
+
           <section aria-labelledby="split-balances-people" className="space-y-2">
             <h3 id="split-balances-people" className="text-sm font-medium">
               Everyone
@@ -66,65 +83,22 @@ export function BalancesSheet({
                   <span className="min-w-0 flex-1 truncate">
                     {m.name}
                     {m.isYou && <span className="text-muted-foreground"> (you)</span>}
-                    {m.status === "invited" && <span className="text-muted-foreground"> · invited</span>}
+                    {m.status === "invited" && (
+                      <span className="text-muted-foreground">{m.nameOnly ? " · not invited" : " · invited"}</span>
+                    )}
                     {m.status === "left" && <span className="text-muted-foreground"> · left</span>}
                   </span>
-                  <BalanceText netMinor={m.netMinor} currency={currency} locale={locale} you={m.isYou} className="shrink-0" />
+                  <BalanceText
+                    netMinor={m.netMinor}
+                    currency={currency}
+                    locale={locale}
+                    you={m.isYou}
+                    openPayments={openPaymentsOf(detail.suggestions, m.id)}
+                    className="shrink-0"
+                  />
                 </li>
               ))}
             </ul>
-          </section>
-
-          <section aria-labelledby="split-balances-settle" className="space-y-2">
-            <h3 id="split-balances-settle" className="text-sm font-medium">
-              Settle up
-            </h3>
-            {detail.suggestions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {detail.hasActivity ? "Everyone is settled up." : "Nothing to settle yet."}
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {detail.suggestions.map((s) => {
-                  const from = names.get(s.fromMemberId) ?? "Someone";
-                  const to = names.get(s.toMemberId) ?? "someone";
-                  const youPay = s.fromMemberId === viewer.memberId;
-                  const youGet = s.toMemberId === viewer.memberId;
-                  return (
-                    <li
-                      key={`${s.fromMemberId}-${s.toMemberId}`}
-                      className="flex items-center gap-2 rounded-lg border p-2.5 text-sm"
-                    >
-                      <span className="min-w-0 flex-1">
-                        {youPay ? "You" : from} {youPay ? "pay" : "pays"} {youGet ? "you" : to}{" "}
-                        <span className="font-medium tabular-nums">{formatMoney(s.amountMinor, currency, locale)}</span>
-                      </span>
-                      {canRecordSettlement(viewer, s) && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="shrink-0"
-                          onClick={() =>
-                            onSettle({
-                              fromMemberId: s.fromMemberId,
-                              fromName: from,
-                              toMemberId: s.toMemberId,
-                              toName: to,
-                              amountMinor: s.amountMinor,
-                            })
-                          }
-                        >
-                          Mark as paid
-                        </Button>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Marking a payment only records it — no money moves through SpendChat.
-            </p>
           </section>
         </div>
       </SheetContent>

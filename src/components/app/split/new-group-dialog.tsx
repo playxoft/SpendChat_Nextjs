@@ -24,7 +24,7 @@ import { toastAdded } from "./added-toast";
 
 const DEFAULT_ICON = "🧾";
 
-/** Start a split group: name, icon, currency, and the first people to invite. */
+/** Start a split group: name, icon, currency, and the first people to add (and invite, by email). */
 export function NewGroupDialog({
   open,
   onOpenChange,
@@ -55,8 +55,8 @@ export function NewGroupDialog({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const members = filledPeople(people);
-    if (members.some((p) => !p.name || !p.email)) {
-      toast.error("Add a name and an email for everyone");
+    if (members.some((p) => !p.name)) {
+      toast.error("Add a name for everyone — the email is optional");
       return;
     }
     startTransition(async () => {
@@ -65,7 +65,7 @@ export function NewGroupDialog({
         toast.error(res.error);
         return;
       }
-      toastAdded(res.added, new Map(members.map((m) => [m.email, m.name])));
+      toastAdded(res.added, members.map((m) => m.name));
       onOpenChange(false);
       router.push(`/app/split/${res.id}`);
     });

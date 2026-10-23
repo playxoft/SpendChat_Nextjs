@@ -1,4 +1,5 @@
 import { integerDigitCount, stripNonAmountChars } from "./parse-amount";
+import { expenseDebts } from "./split-math";
 import { AMOUNT_INTEGER_DIGITS_MAX } from "./validation";
 
 /**
@@ -15,45 +16,71 @@ export function initialsOf(name: string): string {
   return (first + last).toUpperCase();
 }
 
+/** Someone on the other side of the viewer's part in one expense. */
+export type Counterpart = { memberId: string; amountMinor: number };
+
 /** Where the viewer stands on one expense — the line under its title. */
 export type MyPart =
-  | { kind: "lent"; amountMinor: number }
-  | { kind: "owe"; amountMinor: number }
+  | { kind: "lent"; amountMinor: number; people: Counterpart[] }
+  | { kind: "owe"; amountMinor: number; people: Counterpart[] }
   | { kind: "own" }
   | { kind: "even" }
   | { kind: "none" };
 
 /**
- * Where you stand: what you paid towards it less your share. "You lent ₹X"
- * when you paid more than your share; "You owe ₹Y" when you paid less (or
- * nothing) and you're in it; "own" when you paid it all just for yourself;
- * "even" when you paid exactly your share of a shared one; "none" ("Not
- * involved") otherwise.
+ * Where you stand on one expense, and with whom (`expenseDebts` — the same
+ * matching the group's settle-up plan is built from): "lent" when people owe
+ * you for it, "owe" when you owe someone, the most first; "own" when you paid
+ * it all just for yourself; "even" when you paid exactly your share of a
+ * shared one; "none" ("Not involved") otherwise.
  */
 export function myPart(
   expense: {
     amountMinor: number;
     payers: readonly { memberId: string; amountMinor: number }[];
-    myShare: { amountMinor: number } | null;
+    shares: readonly { memberId: string; amountMinor: number }[];
   },
   myMemberId: string,
 ): MyPart {
-  const mine = expense.myShare?.amountMinor ?? 0;
-  const paid = expense.payers.reduce((acc, p) => acc + (p.memberId === myMemberId ? p.amountMinor : 0), 0);
-  const net = paid - mine;
-  if (net > 0) return { kind: "lent", amountMinor: net };
-  if (net < 0) return { kind: "owe", amountMinor: -net };
-  if (paid > 0) return mine === expense.amountMinor ? { kind: "own" } : { kind: "even" };
-  return { kind: "none" };
+  const debts = expenseDebts(expense.payers, expense.shares);
+  const total = (people: Counterpart[]) => people.reduce((acc, p) => acc + p.amountMinor, 0);
+  const lent = debts
+    .filter((d) => d.toMemberId === myMemberId)
+    .map((d) => ({ memberId: d.fromMemberId, amountMinor: d.amountMinor }));
+  if (lent.length > 0) return { kind: "lent", amountMinor: total(lent), people: lent };
+  const owe = debts
+    .filter((d) => d.fromMemberId === myMemberId)
+    .map((d) => ({ memberId: d.toMemberId, amountMinor: d.amountMinor }));
+  if (owe.length > 0) return { kind: "owe", amountMinor: total(owe), people: owe };
+  const paid = expense.payers.some((p) => p.memberId === myMemberId && p.amountMinor > 0);
+  if (!paid) return { kind: "none" };
+  const mine = expense.shares.find((s) => s.memberId === myMemberId)?.amountMinor ?? 0;
+  return mine === expense.amountMinor ? { kind: "own" } : { kind: "even" };
 }
 
-/** The words for `myPart` — the bubble's line, and its spoken label. */
-export function myPartText(part: MyPart, format: (minor: number) => string): string {
+/**
+ * The words for `myPart`, naming the other side — "You owe Senthil ₹500",
+ * "Asha and Ben owe you ₹600", "3 people owe you ₹750" — for the bubble's
+ * spoken label and anywhere a plain string is needed.
+ */
+export function myPartText(part: MyPart, format: (minor: number) => string, nameOf: (memberId: string) => string): string {
   switch (part.kind) {
-    case "lent":
-      return `You lent ${format(part.amountMinor)}`;
-    case "owe":
-      return `You owe ${format(part.amountMinor)}`;
+    case "lent": {
+      const [a, b] = part.people;
+      if (part.people.length === 1) return `${nameOf(a!.memberId)} owes you ${format(part.amountMinor)}`;
+      if (part.people.length === 2) {
+        return `${nameOf(a!.memberId)} and ${nameOf(b!.memberId)} owe you ${format(part.amountMinor)}`;
+      }
+      return `${part.people.length} people owe you ${format(part.amountMinor)}`;
+    }
+    case "owe": {
+      const [a, b] = part.people;
+      if (part.people.length === 1) return `You owe ${nameOf(a!.memberId)} ${format(part.amountMinor)}`;
+      if (part.people.length === 2) {
+        return `You owe ${nameOf(a!.memberId)} ${format(a!.amountMinor)} and ${nameOf(b!.memberId)} ${format(b!.amountMinor)}`;
+      }
+      return `You owe ${part.people.length} people ${format(part.amountMinor)}`;
+    }
     case "own":
       return "Just you";
     case "even":
@@ -76,23 +103,48 @@ export function payersLabel(payers: readonly { name: string; isYou: boolean }[])
   return `${you ? "You" : others[0]} and ${payers.length - 1} others`;
 }
 
-/** A balance as a status: "You're owed ₹X", "You owe ₹Y" or "Settled Up" (Title Case on purpose). */
-export function balanceStatus(netMinor: number): "owed" | "owe" | "settled" {
-  return netMinor > 0 ? "owed" : netMinor < 0 ? "owe" : "settled";
+/**
+ * A balance as a status: owed, owe, or settled — and "open" at a zero balance
+ * that still has payments to make or receive (owing one person what another
+ * owes you), which isn't settled at all.
+ */
+export function balanceStatus(netMinor: number, openPayments = 0): "owed" | "owe" | "open" | "settled" {
+  if (netMinor > 0) return "owed";
+  if (netMinor < 0) return "owe";
+  return openPayments > 0 ? "open" : "settled";
 }
 
 /** The status label for a settled balance — Title Case, as a chip. */
 export const SETTLED_UP = "Settled Up";
 
+/** How many lines of a settle-up plan are someone's to pay or receive. */
+export function openPaymentsOf(
+  plan: readonly { fromMemberId: string; toMemberId: string }[],
+  memberId: string,
+): number {
+  return plan.filter((d) => d.fromMemberId === memberId || d.toMemberId === memberId).length;
+}
+
+/** "1 payment" / "3 payments" — to settle at a zero balance. */
+function paymentsToSettle(n: number): string {
+  return `${n} ${n === 1 ? "payment" : "payments"} to settle`;
+}
+
 /**
  * The balance chip's words — full ("You're owed ₹1,200") for its accessible
  * name and wide screens, short ("+₹1,200", "−₹300") where a phone has room for
- * little else. `amount` is the formatted absolute amount.
+ * little else. `amount` is the formatted absolute amount; `openPayments` the
+ * viewer's lines in the settle-up plan, which a zero balance can still have.
  */
-export function balanceChipText(netMinor: number, amount: string): { full: string; short: string } {
-  const status = balanceStatus(netMinor);
+export function balanceChipText(
+  netMinor: number,
+  amount: string,
+  openPayments = 0,
+): { full: string; short: string } {
+  const status = balanceStatus(netMinor, openPayments);
   if (status === "owed") return { full: `You're owed ${amount}`, short: `+${amount}` };
   if (status === "owe") return { full: `You owe ${amount}`, short: `−${amount}` };
+  if (status === "open") return { full: `Even overall, ${paymentsToSettle(openPayments)}`, short: `${openPayments} to settle` };
   return { full: SETTLED_UP, short: SETTLED_UP };
 }
 
@@ -157,4 +209,99 @@ export function mergeFeed<T extends FeedPlaced>(previous: readonly T[], page: re
  */
 export function keepThroughRefresh<T extends FeedPlaced>(older: readonly T[], previousPage: readonly T[]): T[] {
   return previousPage.length > 0 ? mergeFeed(older, previousPage) : [...older];
+}
+
+/** One payment of a group's settle-up plan (`pairwiseSettlements`), as the server sends it. */
+type Transfer = { fromMemberId: string; toMemberId: string; amountMinor: number };
+
+/** The viewer's part in a payment: they pay it, they get it, or it's between others. */
+export type TransferRole = "pay" | "receive" | "other";
+
+export function transferRole(t: Transfer, viewerMemberId: string): TransferRole {
+  return t.fromMemberId === viewerMemberId ? "pay" : t.toMemberId === viewerMemberId ? "receive" : "other";
+}
+
+/**
+ * The settle-up plan as one viewer reads it: their own payments first, then
+ * everyone else's, each part keeping the plan's order — which is the same for
+ * every member, so two people comparing their screens see the same lines.
+ */
+export function transfersForViewer<T extends Transfer>(
+  transfers: readonly T[],
+  viewerMemberId: string,
+): (T & { role: TransferRole })[] {
+  const withRole = transfers.map((t) => ({ ...t, role: transferRole(t, viewerMemberId) }));
+  return [...withRole.filter((t) => t.role !== "other"), ...withRole.filter((t) => t.role === "other")];
+}
+
+/** One side of the viewer's part in a settle-up plan: the people, in the plan's order, and the total. */
+export type PlanSide = { memberIds: string[]; amountMinor: number };
+
+/**
+ * The viewer's part of a group's settle-up plan, summed per side — whom they
+ * pay, who pays them — and how many payments are between other people: what
+ * the bar above a group's chat says before it's opened.
+ */
+export function planSummary(
+  transfers: readonly Transfer[],
+  viewerMemberId: string,
+): { pay: PlanSide; receive: PlanSide; others: number } {
+  const pay: PlanSide = { memberIds: [], amountMinor: 0 };
+  const receive: PlanSide = { memberIds: [], amountMinor: 0 };
+  let others = 0;
+  for (const t of transfers) {
+    const role = transferRole(t, viewerMemberId);
+    if (role === "pay") {
+      pay.memberIds.push(t.toMemberId);
+      pay.amountMinor += t.amountMinor;
+    } else if (role === "receive") {
+      receive.memberIds.push(t.fromMemberId);
+      receive.amountMinor += t.amountMinor;
+    } else {
+      others += 1;
+    }
+  }
+  return { pay, receive, others };
+}
+
+/** A side's people by name: "Ravi", "Ravi and Asha", "Ravi and 2 others". */
+export function peopleNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names[0]} and ${names.length - 1} others`;
+}
+
+/**
+ * The plan summary in words, for the bar's accessible name: "You pay Ravi ₹500,
+ * Asha and Ben pay you ₹300", "You're settled up, 2 payments between others",
+ * "All settled up — nobody owes anyone". Commas where the bar shows dots, which
+ * a screen reader would read out.
+ */
+export function planSummaryText(
+  summary: ReturnType<typeof planSummary>,
+  format: (minor: number) => string,
+  nameOf: (memberId: string) => string,
+): string {
+  const { pay, receive, others } = summary;
+  const parts: string[] = [];
+  if (pay.memberIds.length > 0) {
+    parts.push(`You pay ${peopleNames(pay.memberIds.map(nameOf))} ${format(pay.amountMinor)}`);
+  }
+  if (receive.memberIds.length > 0) {
+    const verb = receive.memberIds.length === 1 ? "pays" : "pay";
+    parts.push(`${peopleNames(receive.memberIds.map(nameOf))} ${verb} you ${format(receive.amountMinor)}`);
+  }
+  if (parts.length > 0) return parts.join(", ");
+  if (others > 0) return `You're settled up, ${others} ${others === 1 ? "payment" : "payments"} between others`;
+  return "All settled up — nobody owes anyone";
+}
+
+/**
+ * A payment in words from the viewer's side, before the amount: "You pay
+ * Ravi", "Asha pays you", "Ravi pays Asha".
+ */
+export function transferSentence(role: TransferRole, fromName: string, toName: string): string {
+  if (role === "pay") return `You pay ${toName}`;
+  if (role === "receive") return `${fromName} pays you`;
+  return `${fromName} pays ${toName}`;
 }

@@ -231,7 +231,7 @@ export const FEATURES: Feature[] = [
   },
   {
     slug: "split",
-    label: "Split",
+    label: "Split bills",
     title: "Split Expenses With Friends, Free",
     h1: "Split it once. Nobody chases anybody.",
     description: `Share a trip, a flat or a dinner with up to ${SPLIT_GROUP_MAX_PEOPLE} people. Split equally, exactly or by percent, and see who owes whom — free on every plan.`,

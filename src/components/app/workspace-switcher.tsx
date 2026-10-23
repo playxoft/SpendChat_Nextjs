@@ -1,23 +1,23 @@
 "use client";
 
-import * as React from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Building2, Check, ChevronsUpDown, Plus, Settings2 } from "lucide-react";
+import { Check, ChevronDown, Plus, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { comboFor } from "@/lib/shortcuts";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
+  DropdownMenuPortal,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CreateWorkspaceDialog } from "./create-workspace-dialog";
+import { DEFAULT_WORKSPACE_ICON } from "@/lib/validation";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useLoadingOverlay } from "./loading-overlay";
 import { usePermissions } from "./permissions";
 import { PlanBadge } from "./plan-badge";
@@ -43,39 +43,49 @@ export type WorkspaceOption = {
 };
 
 /**
- * The workspace dropdown at the top of the left nav: switch between
- * workspaces, jump to workspace settings, or create a new one.
+ * The workspace row of the account menu (top right): one submenu trigger
+ * naming the current workspace — its icon, its name and the `g` hint — that
+ * opens, on hover, a tap, → or Enter, onto every workspace (the current one
+ * ticked; picking another switches to it), then New workspace and Workspace
+ * settings. On a phone the row unfolds that list in place instead. The account
+ * menu stays short however many workspaces someone is in, and the list is one
+ * step away. It used to be its own dropdown at the top
+ * of the left nav; switching workspace is rare next to switching profile, so it
+ * moved in with the rest of "you and your account" — the sidebar only labels
+ * the current one (`ProfileList`).
+ *
+ * Renders a `DropdownMenuSub` (a phone: a row and its list) — the caller's
+ * `DropdownMenuContent` holds it.
+ * The create dialog (`CreateWorkspaceDialog`) is rendered by the caller,
+ * outside the menu, because the menu's content unmounts the moment it closes.
  */
-export function WorkspaceSwitcher({
+export function WorkspaceSubmenu({
   workspaces,
   currentId,
-  onNavigate,
-  showShortcut = false,
+  onCreate,
 }: {
   workspaces: WorkspaceOption[];
   currentId: string;
-  onNavigate?: () => void;
-  /** Show the `g` hint on the trigger — the sidebar does, the mobile sheet doesn't. */
-  showShortcut?: boolean;
+  /** Open the "New workspace" form (rendered by the caller, outside the menu). */
+  onCreate: () => void;
 }) {
   const router = useRouter();
-  const { run, pending } = useLoadingOverlay();
+  const { run } = useLoadingOverlay();
   const { canWrite } = usePermissions();
-  const [createOpen, setCreateOpen] = React.useState(false);
   // One free workspace per person: the item still opens the form, which explains.
   const createLock = useAddLock("workspaces");
-
   const current = workspaces.find((w) => w.id === currentId) ?? workspaces[0];
+  const isMobile = useIsMobile();
+  const [unfolded, setUnfolded] = useState(false);
 
   function handleSwitch(id: string) {
     if (id === currentId) return;
-    // Run through the overlay provider so a full-screen loader covers the whole
-    // switch (and survives the mobile sheet unmounting) instead of hanging.
+    // Through the overlay provider, so a full-screen loader covers the whole
+    // switch instead of the closed menu leaving nothing on screen.
     run(
       async () => {
         const res = await switchWorkspace(id);
         if (res.ok) {
-          onNavigate?.();
           router.push("/app");
           router.refresh();
         } else {
@@ -87,88 +97,102 @@ export function WorkspaceSwitcher({
     );
   }
 
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            disabled={pending}
-            className="h-auto w-full justify-start gap-2 px-2 py-1.5"
-            aria-label="Switch workspace"
-          >
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent">
-              {current?.icon ? (
-                <span className="text-sm leading-none">{current.icon}</span>
-              ) : (
-                <Building2 className="size-3.5" />
-              )}
-            </span>
-            <span className="min-w-0 flex-1 text-left">
-              <span className="block truncate text-sm leading-tight font-medium">
-                {current?.name ?? "Workspace"}
-              </span>
-              {current && (
-                <span className="block truncate text-xs leading-tight text-muted-foreground capitalize">
-                  {roleLabel(current.role)}
-                </span>
-              )}
-            </span>
-            {/* Teaches the `g` picker (WorkspaceSwitchDialog) from the place
-                people already go to switch. Desktop only — no keyboard on
-                mobile — and only when there's more than one workspace, which is
-                the same condition that binds the key. */}
-            {showShortcut && workspaces.length > 1 && (
-              <Kbd combo={comboFor("workspace.switch")} className="hidden shrink-0 sm:inline-flex" />
-            )}
-            <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="min-w-72">
-          <DropdownMenuLabel className="text-xs text-muted-foreground">
-            Workspaces
-          </DropdownMenuLabel>
-          {workspaces.map((w) => (
-            <DropdownMenuItem
-              key={w.id}
-              onSelect={() => handleSwitch(w.id)}
-              className="gap-2"
-            >
-              <span aria-hidden className="w-5 shrink-0 text-center text-sm leading-none">
-                {w.icon ?? ""}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{w.name}</span>
-              <PlanBadge plan={w.plan} />
-              <span className="shrink-0 text-sm text-muted-foreground capitalize">
-                {roleLabel(w.role)}
-              </span>
-              <Check className={cn("size-4", w.id === currentId ? "opacity-100" : "opacity-0")} />
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link href="/app/settings/workspace" onClick={() => onNavigate?.()}>
-              <Settings2 className="size-4" />
-              Workspace settings
-            </Link>
-          </DropdownMenuItem>
-          {canWrite && (
-            <LimitTooltip lock={createLock} side="right">
-              <DropdownMenuItem onSelect={() => setCreateOpen(true)}>
-                <Plus className="size-4" />
-                New workspace
-                {createLock && <LockGlyph className="ml-auto" />}
-              </DropdownMenuItem>
-            </LimitTooltip>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+  if (!current) return null;
 
-      <CreateWorkspaceDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={onNavigate}
-      />
+  const items = (
+    <>
+      {workspaces.map((w) => (
+        <DropdownMenuItem
+          key={w.id}
+          onSelect={() => handleSwitch(w.id)}
+          aria-current={w.id === currentId ? "true" : undefined}
+          className="cursor-pointer gap-2 px-2 py-2"
+        >
+          <span aria-hidden className="w-5 shrink-0 text-center text-sm leading-none">
+            {w.icon ?? DEFAULT_WORKSPACE_ICON}
+          </span>
+          <span className="min-w-0 flex-1 truncate">{w.name}</span>
+          <PlanBadge plan={w.plan} />
+          <span className="shrink-0 text-xs text-muted-foreground capitalize">{roleLabel(w.role)}</span>
+          <Check className={cn("size-4", w.id === currentId ? "opacity-100" : "opacity-0")} />
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+      {canWrite && (
+        <LimitTooltip lock={createLock} side="left">
+          <DropdownMenuItem onSelect={onCreate} className="cursor-pointer px-2 py-2">
+            <Plus className="size-4" />
+            New workspace
+            {createLock && <LockGlyph className="ml-auto" />}
+          </DropdownMenuItem>
+        </LimitTooltip>
+      )}
+      <DropdownMenuItem asChild className="px-2 py-2">
+        <Link href="/app/settings/workspace" className="cursor-pointer">
+          <Settings2 className="size-4" />
+          Workspace settings
+        </Link>
+      </DropdownMenuItem>
     </>
+  );
+
+  const name = (
+    <>
+      <span aria-hidden className="w-5 shrink-0 text-center text-sm leading-none">
+        {current.icon ?? DEFAULT_WORKSPACE_ICON}
+      </span>
+      <span className="min-w-0 flex-1 truncate">
+        <span className="sr-only">Workspace: </span>
+        {current.name}
+      </span>
+    </>
+  );
+
+  // A phone has no room beside a menu pinned to its right edge — a side
+  // submenu would open off-screen — so there the row unfolds the list in place.
+  if (isMobile) {
+    return (
+      <>
+        <DropdownMenuItem
+          aria-expanded={unfolded}
+          // Keep the menu open: the row only shows or hides the list under it.
+          onSelect={(e) => {
+            e.preventDefault();
+            setUnfolded((u) => !u);
+          }}
+          className="cursor-pointer gap-2 px-2 py-2"
+        >
+          {name}
+          <ChevronDown
+            aria-hidden
+            className={cn("size-4 text-muted-foreground transition-transform", unfolded && "rotate-180")}
+          />
+        </DropdownMenuItem>
+        {unfolded && <div className="mx-1 mb-1 rounded-md border bg-muted/30 p-1">{items}</div>}
+      </>
+    );
+  }
+
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger className="cursor-pointer gap-2 px-2 py-2">
+        {name}
+        {/* Teaches the `g` picker (WorkspaceSwitchDialog) where people come to
+            switch. Bound only with more than one workspace, so shown only then. */}
+        {workspaces.length > 1 && <Kbd combo={comboFor("workspace.switch")} className="opacity-70" />}
+      </DropdownMenuSubTrigger>
+      {/* Portalled, as Radix documents for submenus, so the account menu's own
+          scroll box can't clip it. Capped to the room on screen, scrolling past
+          it; names are truncated rather than stretching it. */}
+      <DropdownMenuPortal>
+        <DropdownMenuSubContent
+          sideOffset={8}
+          alignOffset={-6}
+          className="max-h-(--radix-dropdown-menu-content-available-height) min-w-64 max-w-[min(20rem,calc(100vw-1rem))] overflow-x-hidden overflow-y-auto p-1.5"
+        >
+          {items}
+        </DropdownMenuSubContent>
+      </DropdownMenuPortal>
+    </DropdownMenuSub>
   );
 }

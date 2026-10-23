@@ -1,5 +1,6 @@
 import { formatFileSize } from "@/lib/attachments";
 import {
+  budgetsAllowance,
   budgetsLimitLabel,
   formatPlanStorage,
   formatResetDate,
@@ -8,6 +9,7 @@ import {
   type UpgradeLimit,
 } from "@/lib/plan-limit";
 import {
+  INVOICE_LIMITS,
   PERSONAL_PLANS,
   PLAN_LIMITS,
   PLAN_NAMES,
@@ -110,12 +112,16 @@ export type PlanPitch = {
   people: string;
   /** What the outcome list builds on: "Everything in Free, and". */
   lead: string;
-  /** Three to five outcomes. Numbers appear as proof, not as the point. */
+  /** Up to eight ticks under the price: short, scannable, one true fact each,
+   *  and enough of them that the plan's worth is visible at a glance — the
+   *  story and the audience line carry the why. Numbers come from
+   *  `PLAN_LIMITS` (and `INVOICE_LIMITS`), never typed in. */
   outcomes: string[];
 };
 
 const L = PLAN_LIMITS;
 const people = (plan: PersonalPlan) => `Up to ${count(L[plan].members)} people`;
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
   free: {
@@ -126,11 +132,14 @@ export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
     people: people("free"),
     lead: "Includes",
     outcomes: [
-      "Every expense and income in one feed, with a running balance — no limit on transactions",
-      `Write one line about your day and let AI fill in the rows — ${count(L.free.aiActionsPerMonth)} times a month`,
-      `Track together with up to ${count(L.free.members)} people, in ${count(L.free.spaces)} spaces`,
-      `Keep the receipt with the spend — ${formatPlanStorage(L.free.storageBytes)} of storage`,
-      `Export to CSV or PDF any time, and get a deleted entry back for ${TRASH_DAYS} days. Your data is always yours.`,
+      "Unlimited transactions, with a running balance",
+      `${count(L.free.aiActionsPerMonth)} AI actions a month: notes to rows, or ask SpendChat AI`,
+      `${count(L.free.spaces)} spaces, ${count(L.free.profilesPerSpace)} profiles in each`,
+      `${capitalize(budgetsAllowance("free"))} with alerts`,
+      `${formatPlanStorage(L.free.storageBytes)} for receipts and files`,
+      `Invoices and quotes, ${count(INVOICE_LIMITS.free.perMonth)} a month`,
+      "Split bills with anyone",
+      `CSV and PDF export, ${TRASH_DAYS}-day undo`,
     ],
   },
   plus: {
@@ -141,11 +150,14 @@ export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
     people: people("plus"),
     lead: "Everything in Free, and",
     outcomes: [
-      `Everyone adds their own spending — room for ${count(L.plus.members)} people`,
-      `Home, kids, a side business and the next trip, each kept apart — ${count(L.plus.spaces)} spaces, ${count(L.plus.profilesPerSpace)} profiles in each`,
-      "Choose who sees what — keep one profile private, let someone only read another",
-      `Stop typing every entry — ${count(L.plus.aiActionsPerMonth)} AI actions a month, and top-ups if you run out`,
-      `Bills and warranties kept with the spend, not lost in your gallery — ${formatPlanStorage(L.plus.storageBytes)}, and ${TRASH_DAYS} days to undo a deleted file`,
+      `${count(L.plus.aiActionsPerMonth)} AI actions a month, plus top-ups`,
+      `${count(L.plus.spaces)} spaces, ${count(L.plus.profilesPerSpace)} profiles in each`,
+      "Private and read-only profiles",
+      "Insights: month-end projection, cash flow, recurring payments",
+      `${capitalize(budgetsAllowance("plus"))} with alerts`,
+      `${formatPlanStorage(L.plus.storageBytes)} for receipts and bills`,
+      `${count(L.plus.categories)} categories and ${count(L.plus.tags)} tags`,
+      `${TRASH_DAYS}-day undo for deleted files`,
     ],
   },
   pro: {
@@ -156,11 +168,12 @@ export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
     people: people("pro"),
     lead: "Everything in Plus, and",
     outcomes: [
-      `Say it instead of typing it — voice entry that understands mixed languages, up to ${minutes(voiceClipMinutes)} a clip`,
-      `Never run out in the middle of the month — ${count(L.pro.aiActionsPerMonth)} AI actions, and top-ups if you need more`,
-      `Room for a team or a joint family — ${count(L.pro.members)} people, ${count(L.pro.spaces)} spaces, ${count(L.pro.profilesPerSpace)} profiles in each`,
-      `Years of receipts and invoices, kept — ${formatPlanStorage(L.pro.storageBytes)}`,
-      `Sort it your way — ${count(L.pro.categories)} categories and ${count(L.pro.tags)} tags`,
+      `Voice entry in any mix of languages, up to ${minutes(voiceClipMinutes)} a clip`,
+      `${count(L.pro.aiActionsPerMonth)} AI actions a month, plus top-ups`,
+      `${count(L.pro.spaces)} spaces, ${count(L.pro.profilesPerSpace)} profiles in each`,
+      `${capitalize(budgetsAllowance("pro"))} with alerts`,
+      `${formatPlanStorage(L.pro.storageBytes)} for receipts and invoices`,
+      `${count(L.pro.categories)} categories and ${count(L.pro.tags)} tags`,
     ],
   },
 };

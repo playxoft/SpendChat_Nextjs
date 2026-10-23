@@ -32,7 +32,14 @@ import {
   updateSplitWorkspaceEntry,
 } from "@/actions/split";
 import type { SplitViewer } from "@/lib/split-access";
-import { balanceChipText, compareFeed, feedCursor, keepThroughRefresh, mergeFeed } from "@/lib/split-display";
+import {
+  balanceChipText,
+  compareFeed,
+  feedCursor,
+  keepThroughRefresh,
+  mergeFeed,
+  openPaymentsOf,
+} from "@/lib/split-display";
 import { formatDateLabel, formatDateShort } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { SPLIT_FEED_PAGE } from "@/lib/validation";
@@ -50,6 +57,7 @@ import { SettleDialog, type SettleTarget } from "./settle-dialog";
 import { SplitComposer } from "./split-composer";
 import { SplitFeed } from "./split-feed";
 import { UpdateEntryDialog, type UpdateEntryTarget } from "./update-entry-dialog";
+import { WhoPaysWhomBar } from "./who-pays-whom";
 import { AccountControls } from "@/components/app/account-controls";
 
 type Confirm =
@@ -61,9 +69,10 @@ type Confirm =
 /**
  * One split group as a chat — the tracker's layout: a sticky header (the
  * group, its people and where you stand), the feed of expenses and payments
- * with the newest at the bottom, and the composer pinned under it. Balances
- * and settling up open in a sheet from the header; an expense's details and
- * its "add to my workspace" actions open from its bubble.
+ * with the newest at the bottom, and the composer pinned under it. Under the
+ * header, the "Who pays whom" bar sums up the viewer's part; it, the balance
+ * chip and the Balances button open the balances sheet with the whole plan; an
+ * expense's details and its "add to my workspace" actions open from its bubble.
  */
 export function SplitChat({
   detail,
@@ -92,6 +101,7 @@ export function SplitChat({
   const names = new Map(detail.members.map((m) => [m.id, m.name]));
   const active = detail.members.filter((m) => m.status !== "left");
   const myNet = detail.members.find((m) => m.isYou)?.netMinor ?? 0;
+  const myOpen = openPaymentsOf(detail.suggestions, me.memberId);
   const people = active.map((m) => ({ id: m.id, name: m.name }));
 
   // The feed: the server's newest page, under whatever "Show earlier" loaded
@@ -161,6 +171,12 @@ export function SplitChat({
   const [draft, setDraft] = React.useState<ExpenseDraft | null>(null);
   const [composerKey, setComposerKey] = React.useState(0);
   const [balancesOpen, setBalancesOpen] = React.useState(false);
+  // Whatever opened the balances sheet gets focus back when it (or "Mark as paid" after it) closes.
+  const balancesOpener = React.useRef<HTMLElement | null>(null);
+  const openBalances = (opener: HTMLElement) => {
+    balancesOpener.current = opener;
+    setBalancesOpen(true);
+  };
   const [settle, setSettle] = React.useState<SettleTarget | null>(null);
   const [addingShare, setAddingShare] = React.useState<SplitExpenseView | null>(null);
   const [entryTarget, setEntryTarget] = React.useState<UpdateEntryTarget | null>(null);
@@ -267,7 +283,7 @@ export function SplitChat({
       <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0">
         <div className="mx-auto flex max-w-3xl items-center gap-2 px-2 py-2 sm:px-4">
           <Button asChild variant="ghost" size="icon" className="shrink-0">
-            <Link href="/app/split" aria-label="Back to Split">
+            <Link href="/app/split" aria-label="Back to Split bills">
               <ArrowLeft />
             </Link>
           </Button>
@@ -290,12 +306,13 @@ export function SplitChat({
               </button>
               <button
                 type="button"
-                onClick={() => setBalancesOpen(true)}
+                onClick={(e) => openBalances(e.currentTarget)}
+                aria-haspopup="dialog"
                 className="flex min-w-0 rounded-full"
                 // The chip's words lead, so the balance is what's announced.
-                aria-label={`${balanceChipText(myNet, formatMoney(Math.abs(myNet), currency, locale)).full} — balances and settling up`}
+                aria-label={`${balanceChipText(myNet, formatMoney(Math.abs(myNet), currency, locale), myOpen).full} — balances and settling up`}
               >
-                <BalanceChip netMinor={myNet} currency={currency} locale={locale} compact />
+                <BalanceChip netMinor={myNet} currency={currency} locale={locale} openPayments={myOpen} compact />
               </button>
             </div>
           </div>
@@ -306,7 +323,8 @@ export function SplitChat({
             className="hidden shrink-0 sm:inline-flex"
             aria-label="Balances and settling up"
             title="Balances"
-            onClick={() => setBalancesOpen(true)}
+            aria-haspopup="dialog"
+            onClick={(e) => openBalances(e.currentTarget)}
           >
             <Scale />
           </Button>
@@ -345,6 +363,7 @@ export function SplitChat({
           </DropdownMenu>
           <AccountControls />
         </div>
+        <WhoPaysWhomBar detail={detail} viewer={viewer} locale={locale} onOpen={openBalances} />
       </header>
 
       <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-4">
@@ -430,6 +449,8 @@ export function SplitChat({
           setBalancesOpen(false);
           setSettle(target);
         }}
+        // Handing over to "Mark as paid", focus stays with that dialog.
+        returnFocus={settle ? undefined : balancesOpener}
       />
       <SettleDialog
         target={settle}
@@ -438,6 +459,7 @@ export function SplitChat({
         currency={currency}
         locale={locale}
         today={today}
+        returnFocus={balancesOpener}
       />
       <UpdateEntryDialog
         target={entryTarget}
@@ -457,6 +479,7 @@ export function SplitChat({
         onOpenChange={setPeopleOpen}
         groupId={group.id}
         members={detail.members}
+        suggestions={detail.suggestions}
         isCreator={me.isCreator}
         peopleCount={detail.peopleCount}
         maxPeople={detail.maxPeople}

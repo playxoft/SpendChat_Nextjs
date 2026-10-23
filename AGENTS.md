@@ -154,9 +154,13 @@ Authentication, secrets via Doppler.
   (**C4**). Billing rows have no FK to `workspaces` except `ai_topups`; `deleteAccount` stops every
   plan the person pays for (cancel at period end — reversible — before erasing; not-running ones
   after) and nulls the buyer instead of deleting rows of surviving workspaces.
-- **Split groups live outside workspaces.** `split_groups` and everything under them
+- **Split groups live outside workspaces.** ("Split bills" in the UI — nav, titles, copy;
+  routes, files, code, tables and the API keep `split`, like Ask.) `split_groups` and everything under them
   are user-scoped: no `workspace_id`, no plan (50 people per group, the creator included,
-  on every plan — `SPLIT_GROUP_MAX_PEOPLE`), and nothing in them is a transaction. Each
+  on every plan — `SPLIT_GROUP_MAX_PEOPLE`), and nothing in them is a transaction.
+  A person's email is optional: one added by name only is an `invited` row with no email,
+  account or invite token (`isNameOnly`) — on expenses and balances like any invitee, but
+  nothing that invites can find them; they still count toward the cap and the daily adds. Each
   group has one currency; amounts are minor units in it, divided by `src/lib/split-math.ts`
   on the server (equal: leftovers to the payer first, then join order; percent: to the
   largest remainders first). Who may do what is

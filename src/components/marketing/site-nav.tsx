@@ -244,7 +244,7 @@ export function SiteNav({
                   primary fill. */}
               <Kbd
                 combo={CTA_SHORTCUT}
-                className="hidden lg:inline-flex [&_kbd]:h-5 [&_kbd]:min-w-5 [&_kbd]:border-primary-foreground/40 [&_kbd]:bg-primary-foreground/15 [&_kbd]:text-primary-foreground [&_kbd]:shadow-none"
+                className="hidden h-5 min-w-5 border-primary-foreground/40 bg-primary-foreground/15 text-primary-foreground shadow-none lg:inline-flex"
               />
             </Link>
           </Button>

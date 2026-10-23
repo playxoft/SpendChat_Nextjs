@@ -268,6 +268,33 @@ describe("emails typed in the calculator", () => {
     const detail = await split.getGroupDetail(uid("o"), res.groupId);
     expect(detail.members.map((m) => m.email)).toEqual(["o@example.com", "asha@example.com", "zoe@example.com"]);
   });
+
+  it("brings someone with no email in by name only — on every expense, never invited", async () => {
+    await bootstrapUser("o");
+    await bootstrapUser("asha");
+    vi.mocked(sendEmail).mockClear();
+    signInAs("o");
+    const draft = tripDraft();
+    // Zoe's email left blank on the form.
+    const res = ok(
+      await importSplitDraft(
+        buildImportInput({ draft, name: draft.name, meId: "p0001", emails: { p0002: "asha@example.com", p0003: " " } }),
+      ),
+    );
+    expect(res.invited).toBe(1);
+    expect(res.expenses).toBe(3);
+    const detail = await split.getGroupDetail(uid("o"), res.groupId);
+    expect(detail.members.map((m) => [m.name, m.status, m.email, m.nameOnly])).toEqual([
+      ["o", "joined", "o@example.com", false],
+      ["Asha", "invited", "asha@example.com", false],
+      ["Zoe", "invited", null, true],
+    ]);
+    // The balances match the calculator's, Zoe included.
+    const preview = computeLedger(draft, importOrder(draft, "p0001"));
+    expect(detail.members.map((m) => m.netMinor)).toEqual(preview.balances.map((b) => b.netMinor));
+    // Nobody was emailed: Asha has an account (in-app invitation), Zoe has no address.
+    expect(vi.mocked(sendEmail).mock.calls.filter(([m]) => m.subject.includes("Goa trip"))).toEqual([]);
+  });
 });
 
 describe("the import keeps the app's caps and is all-or-nothing", () => {

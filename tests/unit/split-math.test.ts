@@ -4,15 +4,19 @@ import {
   canonicalOrder,
   computeShares,
   describeSplitError,
+  expenseDebts,
   fromBasisPoints,
   percentToInputString,
   netBalances,
+  pairwiseSettlements,
   payerAmounts,
   primaryPayer,
   SplitMathError,
   suggestSettlements,
   toBasisPoints,
   type MemberBalance,
+  type SettlementSuggestion,
+  type ShareAmount,
 } from "@/lib/split-math";
 import { formatMoney } from "@/lib/money";
 import { parseAmountInput } from "@/lib/parse-amount";
@@ -309,6 +313,285 @@ describe("suggestSettlements", () => {
       }
       const after = netBalances(people, { paid, owed, sent, received });
       expect(after.every((n) => n.netMinor === 0)).toBe(true);
+    }
+  });
+
+  it("two people: the one who owes pays the other", () => {
+    expect(
+      suggestSettlements([
+        { memberId: "a", netMinor: 2500 },
+        { memberId: "b", netMinor: -2500 },
+      ]),
+    ).toEqual([{ fromMemberId: "b", toMemberId: "a", amountMinor: 2500 }]);
+  });
+
+  it("carries the leftover paisa of an uneven split through to the payment", () => {
+    // ₹100 three ways, paid by d who isn't in it: a takes the leftover paisa.
+    const shares = computeShares(10_000, "d", { type: "equal", memberIds: ["a", "b", "c"] });
+    const owed = Object.fromEntries(shares.map((s) => [s.memberId, s.amountMinor]));
+    const nets = netBalances(["a", "b", "c", "d"], { paid: { d: 10_000 }, owed, sent: {}, received: {} });
+    const plan = suggestSettlements(nets);
+    expect(plan).toEqual([
+      { fromMemberId: "a", toMemberId: "d", amountMinor: 3334 },
+      { fromMemberId: "b", toMemberId: "d", amountMinor: 3333 },
+      { fromMemberId: "c", toMemberId: "d", amountMinor: 3333 },
+    ]);
+    expect(sum(plan)).toBe(10_000);
+  });
+
+  it("many people: at most n − 1 payments, adding up to everything owed", () => {
+    const balances: MemberBalance[] = [
+      { memberId: "a", netMinor: 5000 },
+      { memberId: "b", netMinor: 2000 },
+      { memberId: "c", netMinor: -4000 },
+      { memberId: "d", netMinor: -2500 },
+      { memberId: "e", netMinor: -500 },
+    ];
+    const plan = suggestSettlements(balances);
+    expect(plan).toEqual([
+      { fromMemberId: "c", toMemberId: "a", amountMinor: 4000 },
+      { fromMemberId: "d", toMemberId: "a", amountMinor: 1000 },
+      { fromMemberId: "d", toMemberId: "b", amountMinor: 1500 },
+      { fromMemberId: "e", toMemberId: "b", amountMinor: 500 },
+    ]);
+    expect(plan.length).toBeLessThanOrEqual(balances.length - 1);
+    expect(sum(plan)).toBe(7000);
+  });
+
+  it("leaves out anyone already square", () => {
+    expect(
+      suggestSettlements([
+        { memberId: "a", netMinor: 0 },
+        { memberId: "b", netMinor: -100 },
+        { memberId: "c", netMinor: 0 },
+        { memberId: "d", netMinor: 100 },
+      ]),
+    ).toEqual([{ fromMemberId: "b", toMemberId: "d", amountMinor: 100 }]);
+    expect(
+      suggestSettlements([
+        { memberId: "a", netMinor: 0 },
+        { memberId: "b", netMinor: 0 },
+      ]),
+    ).toEqual([]);
+    expect(suggestSettlements([])).toEqual([]);
+  });
+
+  it("is the same list whatever order the balances come in — every member sees one plan", () => {
+    const balances: MemberBalance[] = [
+      { memberId: "m1", netMinor: 300 },
+      { memberId: "m2", netMinor: 300 },
+      { memberId: "m3", netMinor: -200 },
+      { memberId: "m4", netMinor: -200 },
+      { memberId: "m5", netMinor: -200 },
+    ];
+    const expected = suggestSettlements(balances);
+    const next = rng(7);
+    for (let round = 0; round < 50; round++) {
+      const shuffled = [...balances].sort(() => next() - 0.5);
+      expect(suggestSettlements(shuffled)).toEqual(expected);
+    }
+    // Equal amounts go by member id.
+    expect(expected).toEqual([
+      { fromMemberId: "m3", toMemberId: "m1", amountMinor: 200 },
+      { fromMemberId: "m4", toMemberId: "m1", amountMinor: 100 },
+      { fromMemberId: "m4", toMemberId: "m2", amountMinor: 100 },
+      { fromMemberId: "m5", toMemberId: "m2", amountMinor: 200 },
+    ]);
+  });
+});
+
+describe("expenseDebts", () => {
+  it("one payer: everyone else in it owes the payer their share", () => {
+    const shares = computeShares(100_000, "me", { type: "equal", memberIds: ["me", "senthil", "nantha", "muthu"] });
+    expect(expenseDebts([{ memberId: "me", amountMinor: 100_000 }], shares)).toEqual([
+      { fromMemberId: "muthu", toMemberId: "me", amountMinor: 25_000 },
+      { fromMemberId: "nantha", toMemberId: "me", amountMinor: 25_000 },
+      { fromMemberId: "senthil", toMemberId: "me", amountMinor: 25_000 },
+    ]);
+  });
+
+  it("a payer who isn't in the split is owed all of it", () => {
+    const shares = computeShares(10_000, "d", { type: "equal", memberIds: ["a", "b", "c"] });
+    const debts = expenseDebts([{ memberId: "d", amountMinor: 10_000 }], shares);
+    expect(debts.map((d) => [d.fromMemberId, d.toMemberId, d.amountMinor])).toEqual([
+      ["a", "d", 3334],
+      ["b", "d", 3333],
+      ["c", "d", 3333],
+    ]);
+  });
+
+  it("paid just for yourself: nobody owes anybody", () => {
+    expect(expenseDebts([{ memberId: "a", amountMinor: 500 }], [{ memberId: "a", amountMinor: 500 }])).toEqual([]);
+  });
+
+  it("several payers: whoever is short pays whoever covered them, inside the expense", () => {
+    // ₹900 for three; a paid 600, b paid 300 (exactly b's share), c paid nothing.
+    const payers: ShareAmount[] = [
+      { memberId: "a", amountMinor: 60_000 },
+      { memberId: "b", amountMinor: 30_000 },
+    ];
+    const shares = computeShares(90_000, "a", { type: "equal", memberIds: ["a", "b", "c"] });
+    expect(expenseDebts(payers, shares)).toEqual([{ fromMemberId: "c", toMemberId: "a", amountMinor: 30_000 }]);
+  });
+});
+
+/** Every expense of a ledger, as the settle-up plan reads them. */
+type Bill = { payers: ShareAmount[]; shares: ShareAmount[] };
+const debtsOf = (bills: Bill[]) => bills.flatMap((b) => expenseDebts(b.payers, b.shares));
+const bill = (payer: string, total: number, memberIds: string[]): Bill => ({
+  payers: [{ memberId: payer, amountMinor: total }],
+  shares: computeShares(total, payer, { type: "equal", memberIds }),
+});
+
+/** Each person's net from a plan: what they're paid less what they pay. */
+function planNets(plan: SettlementSuggestion[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const p of plan) {
+    out[p.toMemberId] = (out[p.toMemberId] ?? 0) + p.amountMinor;
+    out[p.fromMemberId] = (out[p.fromMemberId] ?? 0) - p.amountMinor;
+  }
+  return out;
+}
+
+describe("pairwiseSettlements", () => {
+  // The group that showed the bug: 4 people; "me" paid ₹1,000 lunch, Senthil
+  // paid ₹2,000 dinner, both split four ways. Matching nets across the group
+  // had Muthumani pay me ₹250 and Nantha pay me nothing, though Nantha ate my
+  // lunch too — and the ₹500 I owe Senthil for dinner vanished.
+  const goa = [
+    bill("me", 100_000, ["me", "senthil", "nantha", "muthu"]),
+    bill("senthil", 200_000, ["me", "senthil", "nantha", "muthu"]),
+  ];
+
+  it("Goa trip: everyone pays back the people they shared a bill with, each pair netted", () => {
+    expect(pairwiseSettlements(debtsOf(goa))).toEqual([
+      { fromMemberId: "muthu", toMemberId: "senthil", amountMinor: 50_000 },
+      { fromMemberId: "nantha", toMemberId: "senthil", amountMinor: 50_000 },
+      { fromMemberId: "me", toMemberId: "senthil", amountMinor: 25_000 },
+      { fromMemberId: "muthu", toMemberId: "me", amountMinor: 25_000 },
+      { fromMemberId: "nantha", toMemberId: "me", amountMinor: 25_000 },
+    ]);
+  });
+
+  it("Goa trip: each person's lines add up to their balance", () => {
+    const nets = netBalances(["me", "senthil", "nantha", "muthu"], {
+      paid: { me: 100_000, senthil: 200_000 },
+      owed: { me: 75_000, senthil: 75_000, nantha: 75_000, muthu: 75_000 },
+      sent: {},
+      received: {},
+    });
+    expect(nets).toEqual([
+      { memberId: "me", netMinor: 25_000 },
+      { memberId: "senthil", netMinor: 125_000 },
+      { memberId: "nantha", netMinor: -75_000 },
+      { memberId: "muthu", netMinor: -75_000 },
+    ]);
+    const fromPlan = planNets(pairwiseSettlements(debtsOf(goa)));
+    for (const n of nets) expect(fromPlan[n.memberId] ?? 0).toBe(n.netMinor);
+  });
+
+  it("a payment counts against what that pair owes — part, all, or more than all", () => {
+    const debts = debtsOf(goa);
+    const paid = (amountMinor: number): SettlementSuggestion[] => [
+      { fromMemberId: "nantha", toMemberId: "me", amountMinor },
+    ];
+    const line = (plan: SettlementSuggestion[]) =>
+      plan.find((p) => [p.fromMemberId, p.toMemberId].sort().join() === "me,nantha");
+    expect(line(pairwiseSettlements(debts, paid(10_000)))).toEqual({
+      fromMemberId: "nantha",
+      toMemberId: "me",
+      amountMinor: 15_000,
+    });
+    expect(line(pairwiseSettlements(debts, paid(25_000)))).toBeUndefined();
+    // Paid too much: now I owe Nantha the difference back.
+    expect(line(pairwiseSettlements(debts, paid(30_000)))).toEqual({
+      fromMemberId: "me",
+      toMemberId: "nantha",
+      amountMinor: 5_000,
+    });
+    // Other pairs don't move.
+    expect(pairwiseSettlements(debts, paid(25_000)).filter((p) => p.fromMemberId === "muthu")).toEqual(
+      pairwiseSettlements(debts).filter((p) => p.fromMemberId === "muthu"),
+    );
+  });
+
+  it("two people who paid for each other: only the difference changes hands", () => {
+    const bills = [bill("a", 60_000, ["a", "b"]), bill("b", 20_000, ["a", "b"])];
+    expect(pairwiseSettlements(debtsOf(bills))).toEqual([{ fromMemberId: "b", toMemberId: "a", amountMinor: 20_000 }]);
+    expect(pairwiseSettlements(debtsOf([bill("a", 20_000, ["a", "b"]), bill("b", 20_000, ["a", "b"])]))).toEqual([]);
+  });
+
+  it("is the same list whatever order the debts come in", () => {
+    const debts = debtsOf(goa);
+    const expected = pairwiseSettlements(debts);
+    const next = rng(11);
+    for (let round = 0; round < 30; round++) {
+      expect(pairwiseSettlements([...debts].sort(() => next() - 0.5))).toEqual(expected);
+    }
+  });
+
+  it("over random ledgers: lines add up to every balance, only between people who shared a bill, one per pair, and paying them squares everyone", () => {
+    const next = rng(2026);
+    for (let round = 0; round < 300; round++) {
+      const people = Array.from({ length: 2 + Math.floor(next() * 9) }, (_, i) => `m${i}`);
+      const bills: Bill[] = [];
+      for (let e = 0; e < 1 + Math.floor(next() * 8); e++) {
+        const total = 1 + Math.floor(next() * 100_000);
+        const splitters = people.filter(() => next() < 0.6);
+        const memberIds = splitters.length ? splitters : [people[0]!];
+        if (next() < 0.25 && people.length > 1) {
+          // Two payers, a random part each.
+          const [p1, p2] = [...people].sort(() => next() - 0.5);
+          const first = Math.floor(next() * total);
+          const payers = payerAmounts(total, [
+            { memberId: p1!, amountMinor: first },
+            { memberId: p2!, amountMinor: total - first },
+          ]);
+          bills.push({ payers, shares: computeShares(total, primaryPayer(payers), { type: "equal", memberIds }) });
+        } else {
+          bills.push(bill(people[Math.floor(next() * people.length)]!, total, memberIds));
+        }
+      }
+      // A few recorded payments, of any size, between any two people.
+      const payments: SettlementSuggestion[] = [];
+      for (let k = 0; k < Math.floor(next() * 3); k++) {
+        const [from, to] = [...people].sort(() => next() - 0.5);
+        payments.push({ fromMemberId: from!, toMemberId: to!, amountMinor: 1 + Math.floor(next() * 50_000) });
+      }
+
+      const paid: Record<string, number> = {};
+      const owed: Record<string, number> = {};
+      const sent: Record<string, number> = {};
+      const received: Record<string, number> = {};
+      for (const b of bills) {
+        for (const p of b.payers) paid[p.memberId] = (paid[p.memberId] ?? 0) + p.amountMinor;
+        for (const s of b.shares) owed[s.memberId] = (owed[s.memberId] ?? 0) + s.amountMinor;
+      }
+      for (const p of payments) {
+        sent[p.fromMemberId] = (sent[p.fromMemberId] ?? 0) + p.amountMinor;
+        received[p.toMemberId] = (received[p.toMemberId] ?? 0) + p.amountMinor;
+      }
+      const nets = netBalances(people, { paid, owed, sent, received });
+      const plan = pairwiseSettlements(debtsOf(bills), payments);
+
+      // 1. Each person's lines add up to their balance — the plan and the chip agree.
+      const fromPlan = planNets(plan);
+      for (const n of nets) expect(fromPlan[n.memberId] ?? 0).toBe(n.netMinor);
+      // 2. Positive amounts, at most one line per pair, never to yourself.
+      const pairs = new Set<string>();
+      for (const p of plan) {
+        expect(p.amountMinor).toBeGreaterThan(0);
+        expect(p.fromMemberId).not.toBe(p.toMemberId);
+        const key = [p.fromMemberId, p.toMemberId].sort().join();
+        expect(pairs.has(key)).toBe(false);
+        pairs.add(key);
+      }
+      // 3. Only between people who were on a bill together or paid each other.
+      const linked = new Set<string>();
+      for (const d of [...debtsOf(bills), ...payments]) linked.add([d.fromMemberId, d.toMemberId].sort().join());
+      for (const key of pairs) expect(linked.has(key)).toBe(true);
+      // 4. Recording every line as paid leaves nothing to settle.
+      expect(pairwiseSettlements(debtsOf(bills), [...payments, ...plan])).toEqual([]);
     }
   });
 });

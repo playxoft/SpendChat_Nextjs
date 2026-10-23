@@ -14,9 +14,87 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.13.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.14.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.49.0] — 2026-10-22
+
+### Added
+- **A short tour for new accounts.** On their first visit to the tracker, new
+  accounts get a guided tour. It switches the composer to Manual and then to AI,
+  so each mode is shown working, and puts your own mode back at the end. It also
+  covers voice entry (on plans that have it), spaces and profiles, SpendChat AI,
+  and the other pages (Transactions, Analytics, Budgets and Files). It ends on
+  the account menu, where your workspaces, Settings and "Take the tour" live.
+  Each step highlights the real control, works on phones, and can be skipped at
+  any time.
+- **Invite people from a space's Members & access.** The dialog now has an
+  email field on every plan, up to the plan's member limit. The person joins
+  the workspace with access to that space. Someone who's already in the
+  workspace just gets this space added; their other spaces and their role stay
+  as they are.
+- **"Who pays whom" in Split bills.** A thin bar right under the group's
+  header sums up your part: "You pay **Senthil** ₹250 · **Nantha and
+  Muthumani** pay you ₹500", and how many payments the group has in all. Where
+  there isn't room for one line, such as on a phone, each side gets its own;
+  long names are shortened before the amounts. Tap it and the balances panel
+  slides in from the right (full screen on a phone) with every payment in the
+  group, including the ones between other people: both people's faces, the
+  amount and "Mark as paid". Everyone sees the same list, so anyone can check
+  it, and the bar says "All settled up" once everyone is square.
+- **People in Split bills no longer need an email.** Add someone by name only
+  and keep track of their share yourself. They're on every expense and balance
+  like anyone else, but nobody gets an invite. An email can't be added to them
+  later: adding them again with one makes a second person, and what's recorded
+  stays with the name-only one.
+
+### Changed
+- **Expense details in Split bills are easier to read.** The amount is large at
+  the top, with the date and how it was split beside it. "Paid by" has the
+  payer's face and name. Each person's share shows whom they owe ("owes Senthil
+  ₹500") or what they get back, and "Your part" sits in its own card.
+- **Split expenses say who you owe.** The line under an expense names the other
+  person: "You owe Senthil ₹500", "Asha and Ben owe you ₹600". It used to say
+  only "You owe ₹500". The payer's name is in bold, in their colour.
+- **Split is now called Split bills**, in the app and on the website, so the
+  name says what it does. Links and keyboard shortcuts haven't changed.
+- **New accounts start with the one-field composer, in compact mode.** Existing
+  accounts keep the layout they have.
+- **Clearer plan cards.** Each plan lists what it includes as short ticked
+  points instead of long sentences: AI actions, spaces and profiles, budgets,
+  storage, insights, invoices, Split bills and more. Every number comes from
+  the plan limits, so the cards can't promise more than the app gives.
+- **Switch workspace from the account menu.** The menu behind your picture, top
+  right, shows the current workspace as one row (with its `G` shortcut).
+  Hovering or tapping it opens the list of your workspaces, with New workspace
+  and Workspace settings. Your plan and Upgrade come right under it. `G` still
+  opens the workspace picker.
+- **The sidebar shows which workspace you're in.** Its icon and name sit just
+  under the SpendChat logo, above your spaces, and the full name shows on hover.
+- **Keyboard shortcuts show as one chip**, "⇧1" rather than "⇧" and "1" side by
+  side, so they take half the room.
+- **The sidebar section is called Spaces**, written normally rather than in
+  capitals. It lists your spaces with their profiles inside, and spaces are what
+  plans count. Profiles are unchanged.
+
+### Fixed
+- **Split bills settle up person to person.** Who pays whom used to match
+  balances across the whole group, so it could send money between people who
+  never shared a bill. For example: you pay ₹1,000 for lunch for four, and
+  Senthil pays ₹2,000 for dinner for four. The plan was "Muthumani pays you
+  ₹250", with nothing from Nantha (who ate your lunch too), and the ₹500 you
+  owe Senthil for dinner disappeared. Now each pair settles on its own. What
+  you owe someone for the bills they paid is set against what they owe you, and
+  a recorded payment counts against it. In that example: you pay Senthil ₹250,
+  Nantha and Muthumani each pay you ₹250 and Senthil ₹500. Everyone's payments
+  still add up to their balance. If you owe one person exactly what another
+  owes you, your balance is zero but you're not done: it reads "Even overall,
+  2 payments to settle" instead of "Settled Up". You can leave a group, or be
+  removed, only once no payment is left to you or from you. The free split
+  calculator works the same way.
+- **Input settings no longer squeeze.** The input layout and density choices
+  are one per row, so each composer preview shows in full.
 
 ## [0.48.1] — 2026-10-20
 

@@ -646,6 +646,28 @@ async function setMemberSpaces(
     });
 }
 
+/** A membership row or any single-profile grant in the workspace — someone `addMember` would re-scope. */
+async function hasWorkspaceAccess(
+  db: ReturnType<typeof getDb>,
+  workspaceId: string,
+  targetUserId: string,
+): Promise<boolean> {
+  const [member] = await db
+    .select({ id: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, targetUserId)))
+    .limit(1);
+  if (member) return true;
+  const [grant] = await db
+    .select({ profileId: profileAccess.profileId })
+    .from(profileAccess)
+    // trash: grants on trashed profiles too — `applyMemberAccess` deletes those as well.
+    .innerJoin(profiles, eq(profileAccess.profileId, profiles.id))
+    .where(and(eq(profileAccess.userId, targetUserId), eq(profiles.workspaceId, workspaceId)))
+    .limit(1);
+  return Boolean(grant);
+}
+
 /**
  * Reconcile a *registered* user's access to exactly what `access` describes.
  * `all` → a workspace membership (dropping any now-redundant per-profile
@@ -756,6 +778,8 @@ async function applyInviteAccess(
   email: string,
   access: AccessGrant,
   invitedBy: string,
+  /** Refuse (409) rather than re-scope an invite that already exists. */
+  addOnly = false,
 ): Promise<string> {
   if (access.mode === "profiles") {
     const wsProfiles = await db
@@ -778,6 +802,16 @@ async function applyInviteAccess(
     await tx.execute(
       sql`select pg_advisory_xact_lock(${INVITE_LOCK_NAMESPACE}, hashtext(${`${workspaceId}:${email}`}))`,
     );
+    if (addOnly) {
+      const [already] = await tx
+        .select({ id: workspaceInvites.id })
+        .from(workspaceInvites)
+        .where(and(eq(workspaceInvites.workspaceId, workspaceId), eq(workspaceInvites.email, email)))
+        .limit(1);
+      if (already) {
+        throw conflict("They're already invited to this workspace. Change what the invite opens in Workspace settings.");
+      }
+    }
     const existing = await tx
       .delete(workspaceInvites)
       .where(and(eq(workspaceInvites.workspaceId, workspaceId), eq(workspaceInvites.email, email)))
@@ -820,11 +854,17 @@ export type AddMemberResult = { status: "added" | "invited"; email: string };
  * each at its own role. A registered email gets access immediately (plus one
  * notification email); an unknown email gets invite rows that convert to access
  * at their first sign-in. Managing members requires workspace admin.
+ *
+ * Normally an address that already has access (or a pending invite) is
+ * re-scoped to `access`. `addOnly` refuses that case instead (409), checked
+ * where the write happens — for callers that only ever add, such as a space's
+ * "Invite someone", which must never narrow what a person already has.
  */
 export async function addMember(
   userId: string,
   workspaceId: string,
   input: unknown,
+  opts: { addOnly?: boolean } = {},
 ): Promise<AddMemberResult> {
   const data = parseOrThrow(addMemberSchema, input);
   const db = getDb();
@@ -867,6 +907,9 @@ export async function addMember(
     if (existing.id === workspace.ownerId) {
       throw badRequest("The workspace owner already has full access");
     }
+    if (opts.addOnly && (await hasWorkspaceAccess(db, workspaceId, existing.id))) {
+      throw conflict("They already have access to this workspace. Change it in Workspace settings.");
+    }
     await applyMemberAccess(db, workspaceId, existing.id, data.access);
     sendEmail({
       to: data.email,
@@ -886,7 +929,7 @@ export async function addMember(
     return { status: "added", email: data.email };
   }
 
-  const token = await applyInviteAccess(db, workspaceId, data.email, data.access, userId);
+  const token = await applyInviteAccess(db, workspaceId, data.email, data.access, userId, opts.addOnly);
   sendEmail({
     to: data.email,
     ...inviteEmail({ ...emailBase, joinUrl: siteUrl(invitePath(token)), recipientHasAccount: false }),

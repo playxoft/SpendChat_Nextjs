@@ -14,10 +14,14 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { ProfileList, type SidebarProfile, type SidebarSpace } from "./profile-list";
+import {
+  ProfileList,
+  type SidebarProfile,
+  type SidebarSpace,
+  type SidebarWorkspace,
+} from "./profile-list";
 import { AccountControls } from "./account-controls";
 import { MobileBulkAdd } from "./mobile-bulk-add";
-import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
 import { hrefWithProfile } from "./nav-items";
 import type { Category } from "@/db/schema";
 
@@ -25,25 +29,24 @@ export function AppTopbar({
   profiles,
   spaces,
   collapsedSpaces,
-  workspaces,
-  currentWorkspaceId,
   categories,
   currency,
   locale,
   today,
   canWrite,
+  workspace,
 }: {
   profiles: SidebarProfile[];
   spaces: SidebarSpace[];
   collapsedSpaces: string[];
-  workspaces: WorkspaceOption[];
-  currentWorkspaceId: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   currency: string;
   locale: string;
   today: string;
   /** Viewers (no editor access anywhere) don't get the bulk-add button. */
   canWrite: boolean;
+  /** The current workspace, labelled above the Spaces heading (see `ProfileList`). */
+  workspace: SidebarWorkspace;
 }) {
   const [open, setOpen] = useState(false);
   const profile = useSearchParams().get("profile");
@@ -60,31 +63,28 @@ export function AppTopbar({
         </Link>
       </div>
       <div className="flex items-center gap-1">
-        {/* Workspace + profile switcher, to the left of the bulk-add button. */}
+        {/* Spaces + profile switcher, to the left of the bulk-add button. The
+            workspace switcher is in the account menu (top right). */}
         <Sheet open={open} onOpenChange={setOpen}>
+          {/* `data-tour`: the phone's stand-in for the sidebar's list on the product tour. */}
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Workspaces and profiles">
+            <Button variant="ghost" size="icon" aria-label="Spaces and profiles" data-tour="spaces">
               <Users className="size-5" />
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="w-72 p-0">
             <SheetHeader className="sr-only">
-              <SheetTitle>Profiles</SheetTitle>
+              <SheetTitle>Spaces</SheetTitle>
               <SheetDescription>Switch between your spaces and transaction profiles.</SheetDescription>
             </SheetHeader>
-            <div className="flex h-full flex-col pt-10">
-              <div className="shrink-0 px-3 pb-1">
-                <WorkspaceSwitcher
-                  workspaces={workspaces}
-                  currentId={currentWorkspaceId}
-                  onNavigate={() => setOpen(false)}
-                />
-              </div>
+            {/* Clear of the close button above the workspace's name. */}
+            <div className="flex h-full flex-col pt-12">
               <ProfileList
                 profiles={profiles}
                 spaces={spaces}
                 collapsedSpaces={collapsedSpaces}
                 onNavigate={() => setOpen(false)}
+                workspace={workspace}
               />
             </div>
           </SheetContent>

@@ -1179,6 +1179,8 @@ export function TransactionComposer({
           edge, never peeking out beneath the card. */}
       <div
         ref={cardRef}
+        // The product tour's first stop (`lib/product-tour.ts`).
+        data-tour="composer"
         className={cn(
           // `**:overscroll-contain` is the other half of `useContainWheel`: a
           // box inside that runs out of room mid-gesture keeps the rest of the

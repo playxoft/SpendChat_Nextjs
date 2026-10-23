@@ -8,6 +8,7 @@ import {
   getUserSettings,
   getAppContext,
 } from "@/lib/auth";
+import { normalizeUiPrefs } from "@/lib/validation";
 import { setSession, signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 
@@ -67,6 +68,11 @@ describe("ensureBootstrap", () => {
       .from(userSettings)
       .where(eq(userSettings.userId, uid("u1")));
     expect(settings.theme).toBe("system");
+    // A new account starts on the one-field composer, compact.
+    expect(settings.inputMode).toBe("combined");
+    expect(normalizeUiPrefs(settings.uiPrefs).composer.density).toBe("compact");
+    // …and is owed the product tour.
+    expect(normalizeUiPrefs(settings.uiPrefs).onboarding.tourPending).toBe(true);
 
     // Currency + locale live on the workspace now (geo-detected; USD/en-US in tests).
     const [workspace] = await getTestDb()

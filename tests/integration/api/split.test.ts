@@ -35,11 +35,11 @@ async function json<T>(res: Response): Promise<{ status: number; body: Envelope<
   return { status: res.status, body: (await res.json()) as Envelope<T> };
 }
 
-type Member = { id: string; name: string; email: string | null; status: string; isYou: boolean; balanceMinor: number; balance: string; inviteLink: string | null };
+type Member = { id: string; name: string; email: string | null; status: string; nameOnly: boolean; isYou: boolean; balanceMinor: number; balance: string; inviteLink: string | null };
 type Detail = { id: string; name: string; currency: string; me: { memberId: string; isCreator: boolean }; members: Member[]; suggestions: { fromMemberId: string; toMemberId: string; amountMinor: number; amount: string }[]; peopleCount: number; maxPeople: number };
-type Added = { memberId: string; email: string; status: string };
+type Added = { memberId: string; email: string | null; status: string };
 
-async function newGroup(members: { email: string; name: string }[] = []) {
+async function newGroup(members: { email?: string | null; name: string }[] = []) {
   await bootstrapUser("o");
   signInAs("o");
   const res = await json<{ group: Detail; added: Added[] }>(
@@ -55,6 +55,37 @@ async function newGroup(members: { email: string; name: string }[] = []) {
 }
 
 describe("/api/v1/split", () => {
+  it("adds people by name only: no email, `added`, nameOnly, no invite link", async () => {
+    const { group, added } = await newGroup([{ name: "Ravi" }, { name: "Zoe", email: "zoe@example.com" }, { name: "Ravi", email: "" }]);
+    expect(added).toEqual([
+      { memberId: expect.any(String), email: null, status: "added" },
+      { memberId: expect.any(String), email: "zoe@example.com", status: "invited" },
+      { memberId: expect.any(String), email: null, status: "added" },
+    ]);
+    expect(group.peopleCount).toBe(4);
+    for (const m of group.members) {
+      if (m.name === "Ravi") {
+        expect(m).toMatchObject({ status: "invited", nameOnly: true, email: null, inviteLink: null });
+      } else {
+        expect(m.nameOnly).toBe(false);
+      }
+    }
+    expect(group.members.find((m) => m.name === "Zoe")!.inviteLink).toMatch(/\/invite\/split\//);
+
+    // Through the members endpoint too.
+    const more = await json<{ group: Detail; added: Added[] }>(
+      await addMembers(
+        apiReq(`/api/v1/split/groups/${group.id}/members`, {
+          method: "POST",
+          body: jsonBody({ members: [{ name: "Dev", email: null }] }),
+        }),
+        ctx({ id: group.id }),
+      ),
+    );
+    expect(more.status).toBe(200);
+    expect(more.body.data.added).toEqual([{ memberId: expect.any(String), email: null, status: "added" }]);
+  });
+
   it("401 without a bearer token", async () => {
     const res = await listGroups(apiReq("/api/v1/split/groups", { auth: false }));
     expect(res.status).toBe(401);
@@ -68,7 +99,7 @@ describe("/api/v1/split", () => {
     const list = await json<{ id: string; myBalanceMinor: number; myBalance: string }[]>(
       await listGroups(apiReq("/api/v1/split/groups")),
     );
-    expect(list.body.data).toEqual([expect.objectContaining({ id: group.id, myBalanceMinor: 0, myBalance: "0" })]);
+    expect(list.body.data).toEqual([expect.objectContaining({ id: group.id, myBalanceMinor: 0, myBalance: "0", myOpenPayments: 0 })]);
 
     const patched = await json<Detail>(
       await patchGroup(

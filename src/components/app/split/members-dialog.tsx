@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { addSplitMembers, removeSplitMember } from "@/actions/split";
 import { splitInvitePath } from "@/lib/invite-links";
+import { openPaymentsOf } from "@/lib/split-display";
+import type { SettlementSuggestion } from "@/lib/split-math";
 import type { SplitMemberView } from "@/services/split";
 import { BalanceText } from "./balance-text";
 import { EMPTY_PERSON, filledPeople, PeopleFields, type PersonDraft } from "./people-fields";
@@ -22,13 +24,16 @@ import { cn } from "@/lib/utils";
 
 /**
  * Who's in the group. Everyone sees names and balances; the creator also sees
- * emails, adds people and removes anyone who's settled up.
+ * emails, adds people and removes anyone who's settled up. Someone added
+ * without an email shows as not invited — to everyone, since it says nothing
+ * about an address.
  */
 export function MembersDialog({
   open,
   onOpenChange,
   groupId,
   members,
+  suggestions,
   isCreator,
   peopleCount,
   maxPeople,
@@ -39,6 +44,8 @@ export function MembersDialog({
   onOpenChange: (open: boolean) => void;
   groupId: string;
   members: SplitMemberView[];
+  /** The settle-up plan: someone in it isn't settled, whatever their balance. */
+  suggestions: SettlementSuggestion[];
   isCreator: boolean;
   peopleCount: number;
   maxPeople: number;
@@ -49,13 +56,15 @@ export function MembersDialog({
   const [people, setPeople] = React.useState<PersonDraft[]>([EMPTY_PERSON]);
   const [pending, setPending] = React.useState(false);
   const room = maxPeople - peopleCount;
+  // Removing needs no balance and no payment left to or from them (the server checks the same).
+  const settled = (m: SplitMemberView) => m.netMinor === 0 && openPaymentsOf(suggestions, m.id) === 0;
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
     const list = filledPeople(people);
     if (list.length === 0) return;
-    if (list.some((p) => !p.name || !p.email)) {
-      toast.error("Add a name and an email for everyone");
+    if (list.some((p) => !p.name)) {
+      toast.error("Add a name for everyone — the email is optional");
       return;
     }
     setPending(true);
@@ -64,7 +73,7 @@ export function MembersDialog({
       toast.error(res.error);
       return;
     }
-    toastAdded(res.added, new Map(list.map((p) => [p.email, p.name])));
+    toastAdded(res.added, list.map((p) => p.name));
     setPeople([EMPTY_PERSON]);
     router.refresh();
   }
@@ -110,10 +119,11 @@ export function MembersDialog({
                   {m.name}
                   {m.isYou && <span className="text-xs font-normal text-muted-foreground">(you)</span>}
                   {m.isCreator && <Badge variant="secondary">Created it</Badge>}
-                  {m.status === "invited" && <Badge variant="outline">Invited</Badge>}
+                  {m.status === "invited" && !m.nameOnly && <Badge variant="outline">Invited</Badge>}
                   {m.status === "left" && <Badge variant="outline">Left</Badge>}
                 </p>
                 {m.email && <p className="truncate text-xs text-muted-foreground">{m.email}</p>}
+                {m.nameOnly && <p className="truncate text-xs text-muted-foreground">No email — not invited</p>}
                 {isCreator && m.status === "invited" && m.inviteToken && (
                   <button
                     type="button"
@@ -123,16 +133,22 @@ export function MembersDialog({
                     Copy invite link
                   </button>
                 )}
-                {isCreator && !m.isYou && m.status !== "left" && m.netMinor !== 0 && (
+                {isCreator && !m.isYou && m.status !== "left" && !settled(m) && (
                   <p className="mt-1 text-xs text-muted-foreground">Settle up first to remove them</p>
                 )}
               </div>
-              <BalanceText netMinor={m.netMinor} currency={currency} locale={locale} className="text-xs" />
+              <BalanceText
+                netMinor={m.netMinor}
+                currency={currency}
+                locale={locale}
+                openPayments={openPaymentsOf(suggestions, m.id)}
+                className="text-xs"
+              />
               {isCreator && !m.isYou && m.status !== "left" && (
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={pending || m.netMinor !== 0}
+                  disabled={pending || !settled(m)}
                   onClick={() => remove(m)}
                 >
                   Remove

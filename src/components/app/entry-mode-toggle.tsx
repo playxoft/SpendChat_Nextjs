@@ -93,6 +93,8 @@ export function EntryModeToggle({
       aria-label="Composer mode"
       data-slot={TOGGLE_SLOT}
       data-pane={pane}
+      // A product-tour stop. Both twins carry it; the tour picks the visible one.
+      data-tour="entry-mode"
       ref={groupRef}
       onKeyDown={(e) => keys.onKeyDown(e, onChange)}
       // Dense gives each side its own tooltip; a native title on the group would

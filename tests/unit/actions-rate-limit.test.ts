@@ -182,6 +182,7 @@ describe("every server action is rate limited", () => {
         "loadRestoredTransactions",
         // the person's own UI preferences
         "dismissInviteNudge",
+        "finishProductTour",
         "patchSettings",
         "recordHeardFrom",
         "setCollapsedSpaces",

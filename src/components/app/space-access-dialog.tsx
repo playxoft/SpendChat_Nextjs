@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { useTransition } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, UserPlus } from "lucide-react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -20,12 +23,12 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { getSpaceAccess, setProfileOverride, setSpaceMember } from "@/actions/spaces";
+import { getSpaceAccess, inviteToSpace, setProfileOverride, setSpaceMember } from "@/actions/spaces";
 import { profileAccessLock } from "@/lib/add-limits";
 import { cn } from "@/lib/utils";
 import { accessLevelForRole } from "@/lib/rbac";
 import { UpgradeHint, usePlan } from "./upgrade-dialog";
-import { LimitLock } from "./limit-lock";
+import { LimitLock, LockGlyph, useAddLock } from "./limit-lock";
 
 /**
  * A space's "Members & access" dialog (workspace admins). Two layers, matching
@@ -33,7 +36,9 @@ import { LimitLock } from "./limit-lock";
  *
  *  1. **Who's in the space** — each non-admin member is in or out, at Read
  *     (viewer) or Read + write (editor). Admins see every space and aren't
- *     editable here.
+ *     editable here. Above the list, "Invite someone" adds an email to the
+ *     workspace with this space (`inviteToSpace` — it never narrows what an
+ *     existing member already has), on every plan up to its member cap.
  *  2. **Per-profile overrides** (Plus/Pro) — for one member on one profile:
  *     No access / Read / Read + write, which wins over the space role in either
  *     direction. "Default" clears it. On Free the matrix is shown but locked;
@@ -60,6 +65,13 @@ type SpaceAccessData = {
 };
 
 const SPACE_ROLE_LABEL: Record<SpaceRole, string> = { viewer: "Read", editor: "Read + write" };
+/** The toast after an invite, by what `inviteToSpace` did. */
+const INVITE_RESULT = {
+  space: "Added to this space",
+  unchanged: "They're already in this space",
+  added: "Added — they already have an account",
+  invited: "Invite sent — access unlocks when they sign up",
+} as const;
 const ACCESS_LABEL: Record<AccessLevel, string> = {
   none: "No access",
   read: "Read",
@@ -85,7 +97,10 @@ export function SpaceAccessDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { plan, reportFailure } = usePlan();
+  const memberLock = useAddLock("members");
   const [data, setData] = React.useState<SpaceAccessData | null>(null);
+  const [inviteEmail, setInviteEmail] = React.useState("");
+  const [inviteRole, setInviteRole] = React.useState<SpaceRole>("viewer");
   const [error, setError] = React.useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -138,6 +153,25 @@ export function SpaceAccessDialog({
     });
   }
 
+  function invite(e: React.FormEvent) {
+    e.preventDefault();
+    const email = inviteEmail.trim();
+    if (!email) {
+      toast.error("Enter an email address");
+      return;
+    }
+    startTransition(async () => {
+      const res = await inviteToSpace(spaceId, { email, role: inviteRole });
+      if (!res.ok) {
+        reportFailure(res);
+        return;
+      }
+      toast.success(INVITE_RESULT[res.status]);
+      setInviteEmail("");
+      await load();
+    });
+  }
+
   function setOverride(profileId: string, userId: string, access: AccessLevel | null) {
     if (!data) return;
     const rest = data.overrides.filter((o) => !(o.profileId === profileId && o.userId === userId));
@@ -179,6 +213,55 @@ export function SpaceAccessDialog({
           <div className="space-y-5" aria-busy={pending}>
             <section className="space-y-2">
               <h3 className="text-sm font-medium">People in this space</h3>
+              <form
+                onSubmit={invite}
+                className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/30 p-3"
+              >
+                <div className="min-w-0 flex-1 basis-48 space-y-1.5">
+                  <Label htmlFor="space-invite-email" className="text-xs">
+                    Invite someone by email
+                  </Label>
+                  <Input
+                    id="space-invite-email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="off"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    maxLength={100}
+                    className="h-8"
+                  />
+                </div>
+                <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as SpaceRole)}>
+                  <SelectTrigger className="h-8 w-32" aria-label="Their access to this space">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="viewer">{SPACE_ROLE_LABEL.viewer}</SelectItem>
+                    <SelectItem value="editor">{SPACE_ROLE_LABEL.editor}</SelectItem>
+                  </SelectContent>
+                </Select>
+                {/* Never disabled by the member cap: putting someone already in
+                    the workspace into this space adds nobody. A new address at
+                    the cap gets the server's `plan_limit`, which opens the
+                    upgrade dialog. */}
+                <Button type="submit" size="sm" disabled={pending} className="h-8">
+                  <UserPlus className="size-4" />
+                  Invite
+                </Button>
+                <p className="basis-full text-xs text-muted-foreground">
+                  They join the workspace with access to this space. No account yet? They get an
+                  email to sign up.
+                  {memberLock && (
+                    <span className="mt-1 flex items-center gap-1">
+                      <LockGlyph className="size-3" />
+                      Your plan&apos;s member limit is reached — you can still add people already in
+                      this workspace.
+                    </span>
+                  )}
+                </p>
+              </form>
               <ul className="divide-y rounded-lg border">
                 {admins.map((m) => (
                   <li key={m.userId} className="flex items-center gap-3 px-3 py-2">
@@ -227,7 +310,7 @@ export function SpaceAccessDialog({
                 })}
                 {nonAdmins.length === 0 && (
                   <li className="px-3 py-2 text-sm text-muted-foreground">
-                    Everyone else in this workspace is an admin. Add people in Workspace settings.
+                    No one else to add yet — invite someone above.
                   </li>
                 )}
               </ul>

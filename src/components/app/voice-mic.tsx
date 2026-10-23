@@ -114,6 +114,8 @@ export function VoiceMicButton({
       ref={buttonRef}
       type="button"
       variant="ghost"
+      // A product-tour stop (`lib/product-tour.ts`).
+      data-tour="voice"
       disabled={disabled || busy}
       aria-label={label}
       // Dense swaps the native title for a real tooltip below — two hints on one

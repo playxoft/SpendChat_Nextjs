@@ -7,6 +7,7 @@ import {
   profiles,
   spaceMembers,
   spaces,
+  workspaceInvites,
   workspaceMembers,
   workspaces,
   type ProfileAccessLevel,
@@ -14,7 +15,7 @@ import {
   type WorkspaceRole,
 } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
-import { findUsersByIds } from "@/lib/directory";
+import { findUserByEmail, findUsersByIds } from "@/lib/directory";
 import {
   assertCanAddProfilesToSpace,
   assertCanAddSpace,
@@ -32,9 +33,11 @@ import {
   requireWorkspaceRole,
 } from "@/lib/workspaces";
 import { notTrashed, trashedOnly } from "@/lib/trash-scope";
+import { addMember } from "./workspaces";
 import {
   createSpaceSchema,
   deleteSpaceSchema,
+  inviteToSpaceSchema,
   moveProfileToSpaceSchema,
   reorderSpacesSchema,
   setProfileOverrideSchema,
@@ -474,6 +477,91 @@ export async function setSpaceMember(userId: string, spaceId: string, input: unk
     memberId: data.userId,
     role: data.role,
   });
+}
+
+/**
+ * What `inviteToSpace` did: `space` put an existing member in the space (or
+ * raised them), `unchanged` found them already there at that role or higher,
+ * `added` / `invited` are `addMember`'s — a new workspace member with an
+ * account, or an emailed invite for an address without one.
+ */
+export type InviteToSpaceStatus = "space" | "unchanged" | "added" | "invited";
+
+const ALREADY_INVITED =
+  "They're already invited to this workspace. Change what the invite opens in Workspace settings.";
+
+/**
+ * "Invite someone" in a space's Members & access dialog (workspace admin):
+ * give one email this space, and never narrow anything it already has.
+ *
+ * Not simply `addMember`, which *re-scopes* an address that already has access —
+ * from here that would drop a member's other spaces, or lower their workspace
+ * role, to grant one space. So someone already in the workspace is put in this
+ * space (or raised to `role`) and keeps everything else; a pending invite is
+ * refused, because its scope is edited in Workspace settings; and only a new
+ * address goes through `addMember` (plan cap, email quota, the invite email),
+ * with this space as its whole grant.
+ */
+export async function inviteToSpace(
+  userId: string,
+  spaceId: string,
+  input: unknown,
+): Promise<{ status: InviteToSpaceStatus }> {
+  const data = parseOrThrow(inviteToSpaceSchema, input);
+  const space = await requireSpaceAdmin(userId, spaceId);
+  const db = getDb();
+
+  const account = await findUserByEmail(data.email);
+  if (account) {
+    const [member] = await db
+      .select({ role: workspaceMembers.role })
+      .from(workspaceMembers)
+      .where(and(eq(workspaceMembers.workspaceId, space.workspaceId), eq(workspaceMembers.userId, account.id)))
+      .limit(1);
+    if (member?.role === "admin") throw badRequest("They're an admin, and admins already see every space");
+    if (member) {
+      const [current] = await db
+        .select({ role: spaceMembers.role })
+        .from(spaceMembers)
+        .where(and(eq(spaceMembers.spaceId, space.id), eq(spaceMembers.userId, account.id)))
+        .limit(1);
+      if (current && (current.role === "editor" || current.role === data.role)) {
+        return { status: "unchanged" };
+      }
+      await setSpaceMember(userId, spaceId, { userId: account.id, role: data.role });
+      return { status: "space" };
+    }
+    // Not a member, but maybe on legacy single-profile grants here: `addMember`
+    // would replace those with this one space, so they're Workspace settings'.
+    const [grant] = await db
+      .select({ profileId: profileAccess.profileId })
+      .from(profileAccess)
+      // trash: grants on trashed profiles too — `addMember` would delete those as well.
+      .innerJoin(profiles, eq(profileAccess.profileId, profiles.id))
+      .where(and(eq(profileAccess.userId, account.id), eq(profiles.workspaceId, space.workspaceId)))
+      .limit(1);
+    if (grant) {
+      throw conflict("They already have access to single profiles here. Change their access in Workspace settings.");
+    }
+  }
+
+  const [pending] = await db
+    .select({ id: workspaceInvites.id })
+    .from(workspaceInvites)
+    .where(and(eq(workspaceInvites.workspaceId, space.workspaceId), eq(workspaceInvites.email, data.email)))
+    .limit(1);
+  if (pending) throw conflict(ALREADY_INVITED);
+
+  // `addOnly`: the checks above ran outside any lock, so `addMember` repeats
+  // them where it writes and refuses rather than re-scoping — a second admin
+  // inviting the same address from another space can't replace this grant.
+  const result = await addMember(
+    userId,
+    space.workspaceId,
+    { email: data.email, access: { mode: "all", role: data.role, spaceIds: [space.id] } },
+    { addOnly: true },
+  );
+  return { status: result.status };
 }
 
 /**

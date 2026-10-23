@@ -9,9 +9,10 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
- * POST /api/v1/split/groups/:id/members — add people by email (creator only).
- * Body: { members: [{ email, name }] }. Someone with an account gets an in-app
- * invitation (no email); someone without one gets a join link. 409
+ * POST /api/v1/split/groups/:id/members — add people (creator only).
+ * Body: { members: [{ name, email? }] }. Someone with an account gets an in-app
+ * invitation (no email); someone without one gets a join link; someone with no
+ * email is added by name only (`added`), never invited. 409
  * `split_group_full` past 50 people (creator included).
  * → { group: SplitGroupDetail, added: SplitAddedPerson[] }.
  */

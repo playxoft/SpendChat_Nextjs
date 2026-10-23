@@ -235,7 +235,14 @@ export type SettlementSuggestion = { fromMemberId: string; toMemberId: string; a
  * Who should pay whom to bring every balance to zero: the largest debt is
  * matched with the largest credit, then the next, so a group of n people needs
  * at most n − 1 payments. Ties go by member id, so the list is the same on
- * every render. "Mark as paid" records one of these as a settlement.
+ * every render.
+ *
+ * **Not a group's settle-up plan.** Matching nets across a whole group sends
+ * money between people who never shared a bill — you paid lunch for four,
+ * Senthil paid dinner for four, and it has Muthumani pay you while Nantha,
+ * who ate your lunch too, pays you nothing. People read that as wrong maths.
+ * A group's plan is `pairwiseSettlements`; this matches the people inside one
+ * expense (`expenseDebts`), and the free calculator's one-off trip.
  */
 export function suggestSettlements(balances: readonly MemberBalance[]): SettlementSuggestion[] {
   const byAmount = (a: { left: number; id: string }, b: { left: number; id: string }) =>
@@ -263,6 +270,66 @@ export function suggestSettlements(balances: readonly MemberBalance[]): Settleme
     if (creditor.left === 0) c += 1;
   }
   return out;
+}
+
+/**
+ * Who owes whom for one expense: each person's share less what they paid
+ * towards it, matched inside the expense. With one payer that's simply every
+ * other participant owing the payer their share; with several, the people
+ * short are matched with the payers who covered them (`suggestSettlements`,
+ * so it's the same on every render).
+ */
+export function expenseDebts(
+  payers: readonly ShareAmount[],
+  shares: readonly ShareAmount[],
+): SettlementSuggestion[] {
+  const net = new Map<string, number>();
+  for (const p of payers) net.set(p.memberId, (net.get(p.memberId) ?? 0) + p.amountMinor);
+  for (const s of shares) net.set(s.memberId, (net.get(s.memberId) ?? 0) - s.amountMinor);
+  return suggestSettlements([...net].map(([memberId, netMinor]) => ({ memberId, netMinor })));
+}
+
+/**
+ * A group's settle-up plan: who pays whom, person to person. Every debt comes
+ * from an expense the two of them were both on (`expenseDebts`); what each
+ * pair owes the other is netted — you owe Senthil ₹500 for dinner, he owes you
+ * ₹250 for lunch, so you pay him ₹250 — and a payment between them counts
+ * against it. Nobody is asked to pay someone they never shared a bill with.
+ *
+ * Each person's lines add up to their balance (`netBalances`), so the plan
+ * and the balance chip always agree; it can take more payments than matching
+ * nets across the group would. `debts` may repeat a pair (one entry per
+ * expense, or per pre-summed batch); `payments` are recorded settlements. The
+ * most first, then by member ids, so every member sees the same list.
+ */
+export function pairwiseSettlements(
+  debts: Iterable<SettlementSuggestion>,
+  payments: Iterable<SettlementSuggestion> = [],
+): SettlementSuggestion[] {
+  // One running total per pair, keyed lower id first: positive = the lower id owes.
+  const pairs = new Map<string, { lo: string; hi: string; minor: number }>();
+  const add = (from: string, to: string, minor: number) => {
+    if (from === to || minor === 0) return;
+    const [lo, hi, sign] = from < to ? [from, to, 1] : [to, from, -1];
+    const key = `${lo}\u0000${hi}`;
+    const pair = pairs.get(key) ?? { lo, hi, minor: 0 };
+    pair.minor += sign * minor;
+    pairs.set(key, pair);
+  };
+  for (const d of debts) add(d.fromMemberId, d.toMemberId, d.amountMinor);
+  // Paying someone back counts against what you owe them.
+  for (const p of payments) add(p.toMemberId, p.fromMemberId, p.amountMinor);
+
+  const out: SettlementSuggestion[] = [];
+  for (const { lo, hi, minor } of pairs.values()) {
+    if (minor > 0) out.push({ fromMemberId: lo, toMemberId: hi, amountMinor: minor });
+    else if (minor < 0) out.push({ fromMemberId: hi, toMemberId: lo, amountMinor: -minor });
+  }
+  const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  return out.sort(
+    (a, b) =>
+      b.amountMinor - a.amountMinor || byId(a.fromMemberId, b.fromMemberId) || byId(a.toMemberId, b.toMemberId),
+  );
 }
 
 /**
