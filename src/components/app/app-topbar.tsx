@@ -77,7 +77,8 @@ export function AppTopbar({
               <SheetTitle>Spaces</SheetTitle>
               <SheetDescription>Switch between your spaces and transaction profiles.</SheetDescription>
             </SheetHeader>
-            <div className="flex h-full flex-col pt-10">
+            {/* Clear of the close button above the workspace's name. */}
+            <div className="flex h-full flex-col pt-12">
               <ProfileList
                 profiles={profiles}
                 spaces={spaces}

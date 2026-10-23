@@ -75,18 +75,10 @@ function Sentence({ line }: { line: Line }) {
  * it's coming to you), and "Mark as paid" for whoever may record it — just a
  * tick on a phone, where the words don't fit beside the amount.
  */
-function TransferRow({
-  line,
-  onSettle,
-  className,
-}: {
-  line: Line;
-  onSettle: (target: SettleTarget) => void;
-  className?: string;
-}) {
+function TransferRow({ line, onSettle }: { line: Line; onSettle: (target: SettleTarget) => void }) {
   const mine = line.role !== "other";
   return (
-    <li className={cn("flex min-h-11 items-center gap-2.5 px-3 py-1.5", className)}>
+    <li className="flex min-h-11 items-center gap-2.5 px-3 py-1.5">
       <span aria-hidden className="flex shrink-0 items-center">
         <MemberAvatar id={line.from.id} name={line.from.name} size="sm" />
         <ArrowRight className="mx-0.5 size-3 text-muted-foreground" />
@@ -191,32 +183,30 @@ function SubHeading({ children }: { children: React.ReactNode }) {
   return <p className="bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">{children}</p>;
 }
 
-/** One side's people on the bar: the names, cut to a count on a phone when there are several. */
+/** One side's people on the bar, by name — what gives way first when the bar is short of room. */
 function Names({ names }: { names: string[] }) {
-  const long = peopleNames(names);
-  const short = peopleNames(names, true);
-  return (
-    <span className="min-w-0 truncate font-semibold text-foreground">
-      {short === long ? (
-        long
-      ) : (
-        <>
-          <span className="sm:hidden">{short}</span>
-          <span className="max-sm:hidden">{long}</span>
-        </>
-      )}
-    </span>
-  );
+  return <span className="min-w-0 truncate font-semibold text-foreground">{peopleNames(names)}</span>;
 }
 
 /**
+ * Each side of the bar. Side by side, both start from nothing and grow alike up
+ * to what they need (`basis-0 grow max-w-max`), so the longer names are cut
+ * first and a short side is never cut for a long one; stacked, each has the
+ * full width. The names give way inside it before the words and the amount,
+ * and nothing spills into the other side.
+ */
+const SIDE =
+  "flex min-w-0 max-w-max grow basis-0 items-center gap-1 overflow-hidden @max-2xl:max-w-full @max-2xl:basis-auto";
+
+/**
  * "Who pays whom" as one thin bar under the group's header, on every screen
- * size: the viewer's own part in a line — "You pay **Senthil** ₹250 ·
- * **Nantha and Muthumani** pay you ₹500" (a line per side on a phone, with a
- * count for several people) — the amounts always in view, the names giving way
- * first; or "You're settled up" / "All settled up". Pressing it
- * opens the whole plan, with "Mark as paid", in the balances panel. Before
- * anything is added it isn't shown.
+ * size: the viewer's own part — "You pay **Senthil** ₹250 · **Nantha and
+ * Muthumani** pay you ₹500" — or "You're settled up" / "All settled up".
+ * It lays out by its own width, not the screen's (the sidebar takes a share
+ * from `md`): side by side with the "Who pays whom" label and the group's count
+ * when there's room, else a line per side. Pressing it opens the whole plan,
+ * with "Mark as paid", in the balances panel; `onOpen` gets the bar, to hand
+ * focus back to when that closes. Before anything is added it isn't shown.
  */
 export function WhoPaysWhomBar({
   detail,
@@ -227,7 +217,7 @@ export function WhoPaysWhomBar({
   detail: SplitGroupDetail;
   viewer: SplitViewer;
   locale: string;
-  onOpen: () => void;
+  onOpen: (opener: HTMLElement) => void;
 }) {
   if (!detail.hasActivity) return null;
 
@@ -238,14 +228,18 @@ export function WhoPaysWhomBar({
   const { pay, receive, others } = summary;
   const count = detail.suggestions.length;
   const square = pay.memberIds.length === 0 && receive.memberIds.length === 0;
+  // The count is the whole group's, so it says so — beside your part it would read as yours.
+  const inGroup = `${count} in the group`;
   const muted = "shrink-0 text-muted-foreground";
 
   return (
-    <div className="mx-auto max-w-3xl px-2 pb-2 sm:px-4">
+    <div className="@container mx-auto max-w-3xl px-2 pb-2 sm:px-4">
       <button
         type="button"
-        onClick={onOpen}
-        aria-label={`${planSummaryText(summary, format, nameOf)} — see who pays whom`}
+        onClick={(e) => onOpen(e.currentTarget)}
+        aria-haspopup="dialog"
+        // The visible words, in order, so a voice command naming them finds the bar.
+        aria-label={`Who pays whom: ${planSummaryText(summary, format, nameOf)}${square ? "" : ` — ${inGroup}`}`}
         className="flex min-h-10 w-full min-w-0 items-center gap-2 rounded-lg border bg-card px-3 py-1.5 text-left text-sm shadow-xs transition-colors outline-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
       >
         {square ? (
@@ -253,22 +247,26 @@ export function WhoPaysWhomBar({
         ) : (
           <ArrowRightLeft aria-hidden className="size-4 shrink-0 text-muted-foreground" />
         )}
-        <span className="shrink-0 font-medium max-sm:hidden">Who pays whom</span>
-        <span aria-hidden className="h-4 w-px shrink-0 bg-border max-sm:hidden" />
+        <span aria-hidden className="shrink-0 font-medium @max-2xl:hidden">
+          Who pays whom
+        </span>
+        <span aria-hidden className="h-4 w-px shrink-0 bg-border @max-2xl:hidden" />
         <span
           aria-hidden
-          className="flex min-w-0 flex-1 items-center gap-1.5 whitespace-nowrap max-sm:flex-col max-sm:items-start max-sm:gap-0.5"
+          className="flex min-w-0 flex-1 items-center gap-1.5 whitespace-nowrap @max-2xl:flex-col @max-2xl:items-start @max-2xl:gap-0.5"
         >
           {pay.memberIds.length > 0 && (
-            <span className="flex max-w-full min-w-0 items-center gap-1">
+            <span className={SIDE}>
               <span className={muted}>You pay</span>
               <Names names={pay.memberIds.map(nameOf)} />
               <span className="shrink-0 font-semibold tabular-nums">{format(pay.amountMinor)}</span>
             </span>
           )}
-          {pay.memberIds.length > 0 && receive.memberIds.length > 0 && <span className={cn(muted, "max-sm:hidden")}>·</span>}
+          {pay.memberIds.length > 0 && receive.memberIds.length > 0 && (
+            <span className="shrink-0 text-muted-foreground @max-2xl:hidden">·</span>
+          )}
           {receive.memberIds.length > 0 && (
-            <span className="flex max-w-full min-w-0 items-center gap-1">
+            <span className={SIDE}>
               <Names names={receive.memberIds.map(nameOf)} />
               <span className={muted}>{receive.memberIds.length === 1 ? "pays you" : "pay you"}</span>
               <span className="shrink-0 font-semibold text-emerald-700 tabular-nums dark:text-emerald-400">
@@ -295,11 +293,7 @@ export function WhoPaysWhomBar({
             </span>
           )}
         </span>
-        {count > 0 && !square && (
-          <span className="shrink-0 text-xs text-muted-foreground max-sm:hidden">
-            {count === 1 ? "1 payment" : `${count} payments`}
-          </span>
-        )}
+        {!square && <span className="shrink-0 text-xs text-muted-foreground @max-2xl:hidden">{inGroup}</span>}
         <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
       </button>
     </div>

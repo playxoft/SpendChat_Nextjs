@@ -264,20 +264,18 @@ export function planSummary(
   return { pay, receive, others };
 }
 
-/**
- * A side's people by name — "Ravi", "Ravi and Asha", "Ravi and 2 others" — or,
- * `short`, a count past one ("2 people") for where a phone has little room.
- */
-export function peopleNames(names: readonly string[], short = false): string {
+/** A side's people by name: "Ravi", "Ravi and Asha", "Ravi and 2 others". */
+export function peopleNames(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";
-  if (short) return `${names.length} people`;
   if (names.length === 2) return `${names[0]} and ${names[1]}`;
   return `${names[0]} and ${names.length - 1} others`;
 }
 
 /**
- * The plan summary in words: "You pay Ravi ₹500 · Asha and Ben pay you ₹300",
- * "You're settled up · 2 payments between others", "All settled up".
+ * The plan summary in words, for the bar's accessible name: "You pay Ravi ₹500,
+ * Asha and Ben pay you ₹300", "You're settled up, 2 payments between others",
+ * "All settled up — nobody owes anyone". Commas where the bar shows dots, which
+ * a screen reader would read out.
  */
 export function planSummaryText(
   summary: ReturnType<typeof planSummary>,
@@ -293,9 +291,9 @@ export function planSummaryText(
     const verb = receive.memberIds.length === 1 ? "pays" : "pay";
     parts.push(`${peopleNames(receive.memberIds.map(nameOf))} ${verb} you ${format(receive.amountMinor)}`);
   }
-  if (parts.length > 0) return parts.join(" · ");
-  if (others > 0) return `You're settled up · ${others} ${others === 1 ? "payment" : "payments"} between others`;
-  return "All settled up";
+  if (parts.length > 0) return parts.join(", ");
+  if (others > 0) return `You're settled up, ${others} ${others === 1 ? "payment" : "payments"} between others`;
+  return "All settled up — nobody owes anyone";
 }
 
 /**

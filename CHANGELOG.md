@@ -36,9 +36,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   as they are.
 - **"Who pays whom" in Split bills.** A thin bar right under the group's
   header sums up your part: "You pay **Senthil** ₹250 · **Nantha and
-  Muthumani** pay you ₹500", the amounts always visible (on a phone, one line
-  each). Tap it and the balances panel opens on the right with every payment in
-  the group, including the ones between other people: both people's faces, the
+  Muthumani** pay you ₹500", and how many payments the group has in all. Where
+  there isn't room for one line, such as on a phone, each side gets its own;
+  long names are shortened before the amounts. Tap it and the balances panel
+  slides in from the right (full screen on a phone) with every payment in the
+  group, including the ones between other people: both people's faces, the
   amount and "Mark as paid". Everyone sees the same list, so anyone can check
   it, and the bar says "All settled up" once everyone is square.
 - **People in Split bills no longer need an email.** Add someone by name only

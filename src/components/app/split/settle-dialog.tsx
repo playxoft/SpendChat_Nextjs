@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { recordSplitSettlement } from "@/actions/split";
 import { minorToInputString, toMinorUnits } from "@/lib/money";
 import { parseAmountInput } from "@/lib/parse-amount";
+import { focusBack } from "./focus-back";
 
 export type SettleTarget = {
   fromMemberId: string;
@@ -29,7 +30,8 @@ export type SettleTarget = {
 
 /**
  * "Mark as paid": record that one person paid another back outside the app.
- * Starts at the suggested amount; a partial payment is fine.
+ * Starts at the suggested amount; a partial payment is fine. `returnFocus`
+ * is where focus goes when it closes — it has no trigger of its own.
  */
 export function SettleDialog({
   target,
@@ -38,6 +40,7 @@ export function SettleDialog({
   currency,
   locale,
   today,
+  returnFocus,
 }: {
   target: SettleTarget | null;
   onOpenChange: (open: boolean) => void;
@@ -45,6 +48,7 @@ export function SettleDialog({
   currency: string;
   locale: string;
   today: string;
+  returnFocus?: React.RefObject<HTMLElement | null>;
 }) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
@@ -90,7 +94,7 @@ export function SettleDialog({
 
   return (
     <Dialog open={target !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-sm" onCloseAutoFocus={(e) => focusBack(e, returnFocus)}>
         <DialogHeader>
           <DialogTitle>Mark as paid</DialogTitle>
           <DialogDescription>

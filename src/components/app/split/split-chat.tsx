@@ -70,9 +70,9 @@ type Confirm =
  * One split group as a chat — the tracker's layout: a sticky header (the
  * group, its people and where you stand), the feed of expenses and payments
  * with the newest at the bottom, and the composer pinned under it. Under the
- * header, "Who pays whom" lists the payments that settle the group; balances
- * open in a sheet from the header; an expense's details and its "add to my
- * workspace" actions open from its bubble.
+ * header, the "Who pays whom" bar sums up the viewer's part; it, the balance
+ * chip and the Balances button open the balances sheet with the whole plan; an
+ * expense's details and its "add to my workspace" actions open from its bubble.
  */
 export function SplitChat({
   detail,
@@ -171,6 +171,12 @@ export function SplitChat({
   const [draft, setDraft] = React.useState<ExpenseDraft | null>(null);
   const [composerKey, setComposerKey] = React.useState(0);
   const [balancesOpen, setBalancesOpen] = React.useState(false);
+  // Whatever opened the balances sheet gets focus back when it (or "Mark as paid" after it) closes.
+  const balancesOpener = React.useRef<HTMLElement | null>(null);
+  const openBalances = (opener: HTMLElement) => {
+    balancesOpener.current = opener;
+    setBalancesOpen(true);
+  };
   const [settle, setSettle] = React.useState<SettleTarget | null>(null);
   const [addingShare, setAddingShare] = React.useState<SplitExpenseView | null>(null);
   const [entryTarget, setEntryTarget] = React.useState<UpdateEntryTarget | null>(null);
@@ -300,7 +306,8 @@ export function SplitChat({
               </button>
               <button
                 type="button"
-                onClick={() => setBalancesOpen(true)}
+                onClick={(e) => openBalances(e.currentTarget)}
+                aria-haspopup="dialog"
                 className="flex min-w-0 rounded-full"
                 // The chip's words lead, so the balance is what's announced.
                 aria-label={`${balanceChipText(myNet, formatMoney(Math.abs(myNet), currency, locale), myOpen).full} — balances and settling up`}
@@ -316,7 +323,8 @@ export function SplitChat({
             className="hidden shrink-0 sm:inline-flex"
             aria-label="Balances and settling up"
             title="Balances"
-            onClick={() => setBalancesOpen(true)}
+            aria-haspopup="dialog"
+            onClick={(e) => openBalances(e.currentTarget)}
           >
             <Scale />
           </Button>
@@ -355,7 +363,7 @@ export function SplitChat({
           </DropdownMenu>
           <AccountControls />
         </div>
-        <WhoPaysWhomBar detail={detail} viewer={viewer} locale={locale} onOpen={() => setBalancesOpen(true)} />
+        <WhoPaysWhomBar detail={detail} viewer={viewer} locale={locale} onOpen={openBalances} />
       </header>
 
       <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-4">
@@ -441,6 +449,8 @@ export function SplitChat({
           setBalancesOpen(false);
           setSettle(target);
         }}
+        // Handing over to "Mark as paid", focus stays with that dialog.
+        returnFocus={settle ? undefined : balancesOpener}
       />
       <SettleDialog
         target={settle}
@@ -449,6 +459,7 @@ export function SplitChat({
         currency={currency}
         locale={locale}
         today={today}
+        returnFocus={balancesOpener}
       />
       <UpdateEntryDialog
         target={entryTarget}

@@ -1,5 +1,6 @@
 "use client";
 
+import type * as React from "react";
 import {
   Sheet,
   SheetContent,
@@ -11,6 +12,7 @@ import type { SplitViewer } from "@/lib/split-access";
 import { openPaymentsOf } from "@/lib/split-display";
 import type { SplitGroupDetail } from "@/services/split";
 import { BalanceChip, BalanceText } from "./balance-text";
+import { focusBack } from "./focus-back";
 import { MemberAvatar } from "./member-avatar";
 import type { SettleTarget } from "./settle-dialog";
 import { TransferList } from "./who-pays-whom";
@@ -18,7 +20,9 @@ import { TransferList } from "./who-pays-whom";
 /**
  * Balances and settling up: who pays whom — person to person, each pair's
  * shared bills netted (`groupDebts`), each with "Mark as paid" for whoever may
- * record it — then everyone's balance.
+ * record it — then everyone's balance. Opened by state, with no trigger of its
+ * own, so `returnFocus` names the control that opened it: closing puts focus
+ * back there rather than on the page.
  */
 export function BalancesSheet({
   open,
@@ -27,6 +31,7 @@ export function BalancesSheet({
   viewer,
   locale,
   onSettle,
+  returnFocus,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -34,6 +39,7 @@ export function BalancesSheet({
   viewer: SplitViewer;
   locale: string;
   onSettle: (target: SettleTarget) => void;
+  returnFocus?: React.RefObject<HTMLElement | null>;
 }) {
   const currency = detail.group.currency;
   const me = detail.members.find((m) => m.isYou);
@@ -43,6 +49,7 @@ export function BalancesSheet({
         side="right"
         closeOnOutsideClick
         className="data-[side=right]:w-full data-[side=right]:sm:max-w-md"
+        onCloseAutoFocus={(e) => focusBack(e, returnFocus)}
       >
         <SheetHeader>
           <SheetTitle>Balances</SheetTitle>

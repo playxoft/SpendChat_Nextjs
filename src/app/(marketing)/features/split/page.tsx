@@ -43,7 +43,7 @@ const faqs = [
   },
   {
     q: "Does SpendChat send the money?",
-    a: "No. It works out who owes whom and a short list of payments that settles everyone. You pay each other however you normally do — cash, UPI, a bank transfer — and press “Mark as paid”, and the balances update for everyone.",
+    a: "No. It works out who owes whom, person to person — each pair’s bills netted, so it’s one payment per pair at most. You pay each other however you normally do — cash, UPI, a bank transfer — and press “Mark as paid”, and the balances update for everyone.",
   },
   {
     q: "Can a group use a different currency from my workspace?",
