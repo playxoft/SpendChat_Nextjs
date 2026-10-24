@@ -43,7 +43,7 @@ const AUDIO = new TextEncoder().encode("fake-opus-bytes-long-enough-to-look-like
 function stubGemini({ fail = false }: { fail?: boolean } = {}) {
   const spy = vi.fn(async (_url: string, init?: { body?: unknown }) => {
     if (fail) {
-      return { ok: false, status: 500, json: async () => ({}), text: async () => "" };
+      return { ok: false, status: 500, headers: new Headers(), json: async () => ({}), text: async () => "" };
     }
     const isAudio = typeof init?.body === "string" && init.body.includes("inlineData");
     const text = isAudio

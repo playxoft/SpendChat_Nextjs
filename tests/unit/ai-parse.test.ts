@@ -3,6 +3,7 @@ import { ApiError } from "@/lib/errors";
 import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
 import { resolveModelFromEnv } from "@/lib/ai-model-registry";
+import { logger } from "@/lib/logger";
 import {
   draftsFromRawJson,
   parseTransactionsText,
@@ -449,6 +450,41 @@ describe("resolveModel — the shared model list + parse's current entry, no mod
     setModel({ model: "gemini-x", apiKey: "k", baseUrl: "https://example.test" });
     expect(resolveModel()).toMatchObject({ provider: "vertex", model: "gemini-x", apiKey: "k", baseUrl: "https://example.test" });
   });
+
+  it("goes direct, with no proxy key, while AI_PROXY_KEY is unset", () => {
+    vi.stubEnv("AI_PROXY_KEY", "");
+    setModel({ model_id: "gemini-x", api_key: "k" });
+    expect(resolveModel()).not.toHaveProperty("proxyKey");
+    expect(resolveModel().provider).toBe("vertex");
+  });
+
+  it("routes Gemini, OpenAI and Anthropic through the proxy once AI_PROXY_KEY is set", () => {
+    vi.stubEnv("AI_PROXY_KEY", " pxk_test ");
+    // Gemini means the Gemini API there: the proxy always calls it from a region it serves.
+    setModel({ model_id: "gemini-x", api_key: "k" });
+    expect(resolveModel()).toMatchObject({ provider: "gemini", apiKey: "k", proxyKey: "pxk_test" });
+    setModel({ model_id: "gpt-x", api_key: "k" });
+    expect(resolveModel()).toMatchObject({ provider: "openai", proxyKey: "pxk_test" });
+    setModel({ model_id: "claude-x", api_key: "k" });
+    expect(resolveModel()).toMatchObject({ provider: "anthropic", proxyKey: "pxk_test" });
+    setModel({ model_id: "gemini-x", api_key: "k", provider: "gemini", thinking_level: "low" });
+    expect(resolveModel()).toMatchObject({ provider: "gemini", proxyKey: "pxk_test", thinkingLevel: "LOW" });
+  });
+
+  it("keeps a base_url host and Vertex direct, and never hands them the proxy key", () => {
+    vi.stubEnv("AI_PROXY_KEY", "pxk_test");
+    setModel({ model_id: "grok-x", api_key: "k", provider: "openai", base_url: "https://api.x.ai/v1" });
+    expect(resolveModel()).not.toHaveProperty("proxyKey");
+    setModel({ model_id: "gemini-x", api_key: "k", base_url: "https://example.test/v1" });
+    expect(resolveModel()).toMatchObject({ provider: "vertex" });
+    expect(resolveModel()).not.toHaveProperty("proxyKey");
+    setModel({ model_id: "gemini-x", api_key: "k", provider: "vertex" });
+    expect(resolveModel()).not.toHaveProperty("proxyKey");
+    // Vertex's own fields keep an entry on Vertex rather than making it invalid.
+    setModel({ model_id: "gemini-x", api_key: "k", project_id: "spendchat-prod", location: "us" });
+    expect(resolveModel()).toMatchObject({ provider: "vertex", projectId: "spendchat-prod" });
+    expect(resolveModel()).not.toHaveProperty("proxyKey");
+  });
 });
 
 describe("parseTransactionsText — provider wiring", () => {
@@ -569,7 +605,7 @@ describe("parseTransactionsText — provider wiring", () => {
   });
 
   describe("retries on Vertex's shared capacity", () => {
-    const busy = { ok: false, status: 429, json: async () => ({}), text: async () => '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}' };
+    const busy = { ok: false, status: 429, headers: new Headers(), json: async () => ({}), text: async () => '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}' };
     const ok = { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: okBody }] } }] }), text: async () => "" };
 
     afterEach(() => {
@@ -691,11 +727,89 @@ describe("parseTransactionsText — provider wiring", () => {
     );
   });
 
+  describe("through the Playxoft AI proxy", () => {
+    it("sends Gemini to the proxy's Gemini API with the entry's key and the proxy key", async () => {
+      vi.stubEnv("AI_PROXY_KEY", "pxk_test");
+      setModel({ model_id: "gemini-x", api_key: "k" });
+      const fetchMock = geminiOk();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).resolves.toHaveLength(1);
+      const { url, headers } = sent(fetchMock);
+      expect(url).toBe("https://ai-proxy.playxoft.com/api/gemini/v1beta/models/gemini-x:generateContent");
+      expect(headers["x-goog-api-key"]).toBe("k");
+      expect(headers["x-px-key"]).toBe("pxk_test");
+    });
+
+    it("sends OpenAI and Anthropic to their proxy paths, each with its own key slot", async () => {
+      vi.stubEnv("AI_PROXY_KEY", "pxk_test");
+      setModel({ model_id: "gpt-x", api_key: "k" });
+      const openai = openaiOk();
+      vi.stubGlobal("fetch", openai);
+      await parseTransactionsText({ ...OPTS, text: "200 fruits" });
+      expect(sent(openai).url).toBe("https://ai-proxy.playxoft.com/api/openai/v1/chat/completions");
+      expect(sent(openai).headers).toMatchObject({ Authorization: "Bearer k", "x-px-key": "pxk_test" });
+
+      setModel({ model_id: "claude-x", api_key: "k" });
+      const anthropic = anthropicOk();
+      vi.stubGlobal("fetch", anthropic);
+      await parseTransactionsText({ ...OPTS, text: "200 fruits" });
+      expect(sent(anthropic).url).toBe("https://ai-proxy.playxoft.com/api/anthropic/v1/messages");
+      expect(sent(anthropic).headers).toMatchObject({ "x-api-key": "k", "x-px-key": "pxk_test" });
+    });
+
+    it("never sends the proxy key to a base_url host", async () => {
+      vi.stubEnv("AI_PROXY_KEY", "pxk_test");
+      setModel({ model_id: "grok-x", api_key: "k", provider: "openai", base_url: "https://api.x.ai/v1" });
+      const fetchMock = openaiOk();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await parseTransactionsText({ ...OPTS, text: "200 fruits" });
+      expect(sent(fetchMock).url).toBe("https://api.x.ai/v1/chat/completions");
+      expect(sent(fetchMock).headers).not.toHaveProperty("x-px-key");
+    });
+
+    it("doesn't retry a proxied Gemini call itself, and logs the proxy's trace", async () => {
+      vi.stubEnv("AI_PROXY_KEY", "pxk_test");
+      setModel({ model_id: "gemini-x", api_key: "k" });
+      const error = vi.spyOn(logger, "error").mockImplementation(() => {});
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 502,
+        headers: new Headers({
+          "x-px-request-id": "px-req-1",
+          "x-px-error": "px_all_regions_failed",
+          "x-px-attempts": "in:upstream_5xx:503,sg:upstream_5xx:503",
+        }),
+        json: async () => ({}),
+        text: async () => '{"error":{"code":502,"status":"UNAVAILABLE"}}',
+      }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).rejects.toMatchObject({ status: 502 });
+      // The proxy already tried the next region.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledWith(
+        "AI parse request failed with status 502",
+        expect.objectContaining({
+          event: "ai.parse.http_error",
+          provider: "gemini",
+          pxRequestId: "px-req-1",
+          pxError: "px_all_regions_failed",
+          pxAttempts: "in:upstream_5xx:503,sg:upstream_5xx:503",
+        }),
+      );
+      // Only the proxy's own headers — never a key.
+      expect(JSON.stringify(error.mock.calls)).not.toContain("pxk_test");
+      error.mockRestore();
+    });
+  });
+
   it("surfaces an upstream failure as 502", async () => {
     setModel({ model_id: "gemini-x", api_key: "k" });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => "boom" })),
+      vi.fn(async () => ({ ok: false, status: 500, headers: new Headers(), json: async () => ({}), text: async () => "boom" })),
     );
     await expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).rejects.toMatchObject({ status: 502 });
   });

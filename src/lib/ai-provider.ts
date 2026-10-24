@@ -14,6 +14,14 @@ import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
  * Split out from `ai-parse.ts` so the pure parsing/validation there stays under
  * the coverage gate while this `fetch` wiring is excluded like the other I/O
  * modules (`logger.ts`, `email.ts`) — see vitest.config.ts.
+ *
+ * **Every Gemini, OpenAI and Anthropic call goes through the Playxoft AI proxy**
+ * once `AI_PROXY_KEY` is set (`ai-model-registry.ts` decides, per entry, and
+ * sets `proxyKey`). The proxy sends each call through a Worker in a region the
+ * provider serves and fails over to the next one, which is what keeps a Worker
+ * placed in Hong Kong working. It's bring-your-own-key: the entry's own provider
+ * key stays in the provider's usual key header and the proxy key rides in
+ * `x-px-key`, which only ever goes to the proxy.
  */
 
 /**
@@ -33,8 +41,15 @@ export const THINKING_LEVELS = new Set<ThinkingLevel>(["MINIMAL", "LOW", "MEDIUM
 export type ModelConfig = {
   provider: Provider;
   model: string;
+  /** The provider's key — sent to the provider, through the proxy or not. */
   apiKey: string;
   baseUrl?: string;
+  /**
+   * The project's Playxoft AI proxy key (`AI_PROXY_KEY`) when this call goes
+   * through the proxy: the request goes to `PROXY_BASE` with this in
+   * `x-px-key`. Never set alongside `baseUrl`, and never sent anywhere else.
+   */
+  proxyKey?: string;
   /** Vertex only. Absent → the API key's own project, on the global endpoint. */
   projectId?: string;
   /** Vertex only: `global` (the default), a multi-region (`us`, `eu`) or a region. */
@@ -90,6 +105,50 @@ export function aiUnavailable(): ApiError {
 /** The provider was reached but the request failed or returned garbage. */
 export function aiFailed(): ApiError {
   return new ApiError(502, "ai_failed", "Couldn't reach the AI just now — please try again.");
+}
+
+// ── The Playxoft AI proxy ───────────────────────────────────────────────────
+
+const AI_PROXY_ORIGIN = "https://ai-proxy.playxoft.com";
+
+/**
+ * The proxy's base URL per protocol; each forwards the path after it unchanged
+ * to the provider (`/api/gemini/v1beta/*` → the Gemini API, not Vertex AI,
+ * which the proxy doesn't front).
+ */
+export const PROXY_BASE = {
+  gemini: `${AI_PROXY_ORIGIN}/api/gemini/v1beta`,
+  openai: `${AI_PROXY_ORIGIN}/api/openai/v1`,
+  anthropic: `${AI_PROXY_ORIGIN}/api/anthropic/v1`,
+} as const;
+
+/** A call's API base: the proxy's when it goes through it, else the entry's `base_url` or the provider's own. */
+function apiBase(cfg: ModelConfig, protocol: keyof typeof PROXY_BASE, direct: string): string {
+  return (cfg.proxyKey ? PROXY_BASE[protocol] : cfg.baseUrl || direct).replace(/\/$/, "");
+}
+
+/** A call's headers, plus the proxy key when it goes through the proxy. */
+function withProxyKey(cfg: ModelConfig, headers: Record<string, string>): Record<string, string> {
+  return cfg.proxyKey ? { ...headers, "x-px-key": cfg.proxyKey } : headers;
+}
+
+/**
+ * The proxy's trace on a response — its request id (quote it when reporting a
+ * failure), its own error code, the region that answered and the regions it
+ * tried — for the failure logs. Empty for a direct call; none of it is secret.
+ */
+function proxyTrace(res: Response): Record<string, string> {
+  const trace: Record<string, string> = {};
+  for (const [field, header] of [
+    ["pxRequestId", "x-px-request-id"],
+    ["pxError", "x-px-error"],
+    ["pxRegion", "x-px-region-used"],
+    ["pxAttempts", "x-px-attempts"],
+  ] as const) {
+    const value = res.headers.get(header);
+    if (value) trace[field] = value;
+  }
+  return trace;
 }
 
 // Gemini responseSchema (OpenAPI subset: uppercase types, `nullable`).
@@ -260,7 +319,8 @@ type Feature = "parse" | "transcribe" | "chat";
  * is to retry with exponential backoff, and a 503 is the same story. A Vertex
  * call therefore gets up to two more tries, these far apart (plus jitter),
  * inside the same timeout. Other providers aren't retried: a 429 from them is a
- * real limit, which waiting a second won't lift.
+ * real limit, which waiting a second won't lift — and through the proxy, a 5xx
+ * is already retried in the next region.
  */
 const RETRY_STATUSES = new Set([429, 503]);
 const RETRY_DELAYS_MS = [1_000, 2_000];
@@ -335,6 +395,7 @@ async function post(
           attempt: attempt + 1,
           // Reading the code also drains the body, which frees the connection.
           ...(await errorCode(res)),
+          ...proxyTrace(res),
         });
         await sleep(delay, controller.signal);
         continue;
@@ -349,6 +410,7 @@ async function post(
         // `message` is off-limits: it echoes request fragments (the user's note)
         // and, on an auth failure, a partial API key.
         ...(await errorCode(res)),
+        ...proxyTrace(res),
       });
       throw aiFailed();
     }
@@ -403,11 +465,13 @@ function noContent(
 }
 
 // ── Google: Vertex AI and the Gemini API ────────────────────────────────────
-// One protocol, two front doors. Vertex is the one to use: the Gemini API
-// refuses callers from places it doesn't serve with 400 FAILED_PRECONDITION
-// ("User location is not supported"), and a Worker runs wherever Cloudflare
-// places it — Hong Kong included — so the same AI Studio key works or fails by
-// colo. Vertex is a Google Cloud service without that list. Both take an API key
+// One protocol, two front doors. The Gemini API refuses callers from places it
+// doesn't serve with 400 FAILED_PRECONDITION ("User location is not
+// supported"), and a Worker runs wherever Cloudflare places it — Hong Kong
+// included — so called directly, the same AI Studio key works or fails by colo.
+// Through the proxy it's always called from a served region, so with
+// `AI_PROXY_KEY` set the Gemini API is the one used. Vertex is a Google Cloud service without
+// that list: the direct route, for an entry that names it. Both take an API key
 // in `x-goog-api-key` (on Vertex, a Google Cloud key bound to a service account,
 // or an express-mode key), and every request and response body below serves both.
 
@@ -424,11 +488,14 @@ const VERTEX_MULTI_REGIONS = new Set(["us", "eu"]);
  * Gemini 3 Flash) → aiplatform.googleapis.com, a multi-region → aiplatform.L.rep
  * .googleapis.com, a region → L-aiplatform.googleapis.com. `base_url` replaces
  * everything up to and including `/v1` on Vertex, `/v1beta` on the Gemini API.
+ *
+ * The Gemini API through the proxy is the proxy's `/api/gemini/v1beta`. Vertex
+ * never goes through it.
  */
 function geminiUrl(cfg: ModelConfig): string {
   if (cfg.provider === "gemini") {
-    const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
-    return `${base.replace(/\/$/, "")}/models/${cfg.model}:generateContent`;
+    const base = apiBase(cfg, "gemini", "https://generativelanguage.googleapis.com/v1beta");
+    return `${base}/models/${cfg.model}:generateContent`;
   }
   const location = cfg.location || "global";
   const host =
@@ -464,7 +531,7 @@ function geminiThinking(cfg: ModelConfig, feature: Feature) {
 async function callGemini(cfg: ModelConfig, system: string, userText: string): Promise<ProviderReply> {
   const json = (await post(
     geminiUrl(cfg),
-    { "x-goog-api-key": cfg.apiKey },
+    withProxyKey(cfg, { "x-goog-api-key": cfg.apiKey }),
     {
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: userText }] }],
@@ -497,10 +564,10 @@ async function callOpenAI(cfg: ModelConfig, system: string, userText: string): P
   // OpenAI-compatible endpoint via cfg.baseUrl. `json_object` mode is the most
   // portable structured output across those providers; the exact shape is
   // pinned by the system prompt and re-validated in `draftsFromRawJson`.
-  const base = cfg.baseUrl || "https://api.openai.com/v1";
+  const base = apiBase(cfg, "openai", "https://api.openai.com/v1");
   const json = (await post(
-    `${base.replace(/\/$/, "")}/chat/completions`,
-    { Authorization: `Bearer ${cfg.apiKey}` },
+    `${base}/chat/completions`,
+    withProxyKey(cfg, { Authorization: `Bearer ${cfg.apiKey}` }),
     {
       model: cfg.model,
       messages: [
@@ -531,10 +598,10 @@ async function callOpenAI(cfg: ModelConfig, system: string, userText: string): P
 }
 
 async function callAnthropic(cfg: ModelConfig, system: string, userText: string): Promise<ProviderReply> {
-  const base = cfg.baseUrl || "https://api.anthropic.com/v1";
+  const base = apiBase(cfg, "anthropic", "https://api.anthropic.com/v1");
   const json = (await post(
-    `${base.replace(/\/$/, "")}/messages`,
-    { "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01" },
+    `${base}/messages`,
+    withProxyKey(cfg, { "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01" }),
     {
       model: cfg.model,
       max_tokens: MAX_OUTPUT_TOKENS,
@@ -617,7 +684,7 @@ export type AudioInput = { bytes: Uint8Array; mimeType: string };
 async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioInput): Promise<ProviderReply> {
   const json = (await post(
     geminiUrl(cfg),
-    { "x-goog-api-key": cfg.apiKey },
+    withProxyKey(cfg, { "x-goog-api-key": cfg.apiKey }),
     {
       contents: [
         {
@@ -669,7 +736,7 @@ async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioIn
  * into that script, so auto-detect wins). See `ai-transcribe.ts`.
  */
 async function transcribeOpenAI(cfg: ModelConfig, prompt: string, audio: AudioInput): Promise<ProviderReply> {
-  const base = cfg.baseUrl || "https://api.openai.com/v1";
+  const base = apiBase(cfg, "openai", "https://api.openai.com/v1");
   const form = new FormData();
   form.append("model", cfg.model);
   form.append(
@@ -682,8 +749,8 @@ async function transcribeOpenAI(cfg: ModelConfig, prompt: string, audio: AudioIn
   if (prompt) form.append("prompt", prompt);
 
   const json = (await post(
-    `${base.replace(/\/$/, "")}/audio/transcriptions`,
-    { Authorization: `Bearer ${cfg.apiKey}` },
+    `${base}/audio/transcriptions`,
+    withProxyKey(cfg, { Authorization: `Bearer ${cfg.apiKey}` }),
     form,
     "openai",
     "transcribe",
@@ -830,7 +897,7 @@ const CHAT_TIMEOUT_MS = 90_000;
 async function chatGemini(cfg: ModelConfig, system: string, turns: ChatTurn[]): Promise<ProviderReply> {
   const json = (await post(
     geminiUrl(cfg),
-    { "x-goog-api-key": cfg.apiKey },
+    withProxyKey(cfg, { "x-goog-api-key": cfg.apiKey }),
     {
       systemInstruction: { parts: [{ text: system }] },
       contents: turns.map((t) => ({
@@ -860,10 +927,10 @@ async function chatGemini(cfg: ModelConfig, system: string, turns: ChatTurn[]): 
 }
 
 async function chatOpenAI(cfg: ModelConfig, system: string, turns: ChatTurn[]): Promise<ProviderReply> {
-  const base = cfg.baseUrl || "https://api.openai.com/v1";
+  const base = apiBase(cfg, "openai", "https://api.openai.com/v1");
   const json = (await post(
-    `${base.replace(/\/$/, "")}/chat/completions`,
-    { Authorization: `Bearer ${cfg.apiKey}` },
+    `${base}/chat/completions`,
+    withProxyKey(cfg, { Authorization: `Bearer ${cfg.apiKey}` }),
     {
       model: cfg.model,
       messages: [{ role: "system", content: system }, ...turns],
@@ -886,10 +953,10 @@ async function chatOpenAI(cfg: ModelConfig, system: string, turns: ChatTurn[]): 
 }
 
 async function chatAnthropic(cfg: ModelConfig, system: string, turns: ChatTurn[]): Promise<ProviderReply> {
-  const base = cfg.baseUrl || "https://api.anthropic.com/v1";
+  const base = apiBase(cfg, "anthropic", "https://api.anthropic.com/v1");
   const json = (await post(
-    `${base.replace(/\/$/, "")}/messages`,
-    { "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01" },
+    `${base}/messages`,
+    withProxyKey(cfg, { "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01" }),
     {
       model: cfg.model,
       max_tokens: ANTHROPIC_CHAT_MAX_TOKENS,

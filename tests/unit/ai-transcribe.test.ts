@@ -329,6 +329,28 @@ describe("transcribeVoiceNote — provider wiring", () => {
     expect((init as { headers: Record<string, string> }).headers["Content-Type"]).toBeUndefined();
   });
 
+  it("goes through the proxy once AI_PROXY_KEY is set — Gemini inline, Whisper multipart", async () => {
+    vi.stubEnv("AI_PROXY_KEY", "pxk_test");
+    setModel({ model_id: "gemini-3.1-flash-lite", api_key: "k" });
+    const gemini = geminiOk("200 fruits");
+    vi.stubGlobal("fetch", gemini);
+    await expect(transcribeVoiceNote(OPTS)).resolves.toBe("200 fruits");
+    const [url, init] = gemini.mock.calls[0]! as unknown as [string, { headers: Record<string, string>; body: string }];
+    expect(url).toBe("https://ai-proxy.playxoft.com/api/gemini/v1beta/models/gemini-3.1-flash-lite:generateContent");
+    expect(init.headers).toMatchObject({ "x-goog-api-key": "k", "x-px-key": "pxk_test" });
+    expect(JSON.parse(init.body).contents[0].parts[1].inlineData.data).toBe(AUDIO_B64);
+
+    setModel({ model_id: "whisper-1", api_key: "k" });
+    const whisper = vi.fn(async () => ({ ok: true, json: async () => ({ text: "200 fruits" }), text: async () => "" }));
+    vi.stubGlobal("fetch", whisper);
+    await expect(transcribeVoiceNote(OPTS)).resolves.toBe("200 fruits");
+    const [wUrl, wInit] = whisper.mock.calls[0]! as unknown as [string, { headers: Record<string, string>; body: FormData }];
+    expect(wUrl).toBe("https://ai-proxy.playxoft.com/api/openai/v1/audio/transcriptions");
+    expect(wInit.headers).toEqual({ Authorization: "Bearer k", "x-px-key": "pxk_test" });
+    // The proxy checks the model of every call, so it has to be in the form.
+    expect(wInit.body.get("model")).toBe("whisper-1");
+  });
+
   it("names the file by container so Safari's mp4 isn't rejected", async () => {
     setModel({ model_id: "whisper-1", api_key: "k" });
     const fetchMock = vi.fn(async () => ({
@@ -397,6 +419,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
       vi.fn(async () => ({
         ok: false,
         status: 500,
+        headers: new Headers(),
         json: async () => ({}),
         text: async () => '{"error":{"code":500}}',
       })),

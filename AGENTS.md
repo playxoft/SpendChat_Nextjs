@@ -295,13 +295,23 @@ Authentication, secrets via Doppler.
   speech model at all). Don't add a second list. Adding a feature means adding a
   `_CURRENT` var, an adapter in `ai-provider.ts` if the protocol is new, and the
   secret to the `wrangler.toml` list — unset simply disables that feature.
-  **Gemini goes through Vertex AI** (`provider: "vertex"`, what a `gemini*` id
-  infers), never the Gemini API by default: the Gemini API rejects callers by
-  location (400 FAILED_PRECONDITION) and the Worker can run in Cloudflare's Hong
-  Kong colo. Both share one adapter — `geminiUrl` is the only difference; the key
-  is a Google Cloud API key bound to a service account. Gemini 3+ never gets
-  `thinkingBudget` (Google: intermittent 400s), and Vertex 429/503s are retried
-  inside the feature's timeout.
+  **Every Gemini, OpenAI and Anthropic call goes through the Playxoft AI proxy**
+  (`ai-proxy.playxoft.com`) once `AI_PROXY_KEY` is set: the proxy calls the
+  provider from a region it serves and fails over to the next, so a Worker placed
+  in Cloudflare's Hong Kong colo still works. It's bring-your-own-key — the
+  entry's `api_key` stays in the provider's key header, `AI_PROXY_KEY` rides in
+  `x-px-key`, and the proxy project needs `allowByok` plus every model in its
+  allowlist.
+  Through it a `gemini*` id means the **Gemini API** (an AI Studio key), since
+  the proxy doesn't front Vertex AI. Two kinds of entry stay direct and never see
+  the proxy key: one with a `base_url` (a host the proxy doesn't serve, like
+  Grok's) and a Vertex one (`provider: "vertex"`, or `project_id`/`location`) —
+  which is also what a `gemini*` id infers while `AI_PROXY_KEY` is unset. Don't
+  add region pinning or location retries; the proxy owns those, and failures log its
+  `x-px-request-id` (`pxRequestId`). Vertex and the Gemini API share one adapter
+  — `geminiUrl` is the only difference. Gemini 3+ never gets `thinkingBudget`
+  (Google: intermittent 400s), and Vertex 429/503s are retried inside the
+  feature's timeout.
 - **Voice entry** (`m`, held) records in the browser, transcribes server-side, and
   drops the text into the AI note for the user to check — it never creates
   transactions directly, so the existing parse→review→confirm path is unchanged

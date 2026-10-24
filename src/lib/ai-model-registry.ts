@@ -36,6 +36,14 @@ import { logger } from "@/lib/logger";
  * They never fall back to one another: an unset `_CURRENT` turns its feature
  * off even when another feature's names a working entry.
  *
+ *   AI_PROXY_KEY             The project's Playxoft AI proxy key. Set, every
+ *                            Gemini, OpenAI and Anthropic entry is called
+ *                            through the proxy, its own `api_key` still sent as
+ *                            the provider key (bring your own key). Not for an
+ *                            entry with a `base_url` (a host the proxy doesn't
+ *                            front, such as Grok's) or a Vertex one — those stay
+ *                            direct and never see the proxy key.
+ *
  * Unset (or misconfigured) → that feature reports "not available" and nothing
  * else breaks. Kept out of `ai-provider.ts` (which is excluded from the coverage
  * gate as I/O wiring) because this resolution is pure logic and is unit-tested.
@@ -52,13 +60,15 @@ function str(v: unknown): string | undefined {
  * endpoint is the OpenAI shape on every host that serves it (OpenAI, Groq, and
  * the OpenAI-compatible crowd). Anything else must set `provider` explicitly.
  *
- * Gemini means Vertex AI: the Gemini API (AI Studio keys) turns callers away by
- * location, and a Worker can run in one of those places (see `geminiUrl` in
- * `ai-provider.ts`). An entry still reaches it with `"provider": "gemini"`.
+ * Gemini means the Gemini API when the call goes through the proxy
+ * (`viaProxy`), which always calls it from a region it serves; called
+ * directly, it means Vertex AI, since the Gemini API turns callers away by
+ * location and a Worker can run in one of those places (see `geminiUrl` in
+ * `ai-provider.ts`). Either can be named with `"provider"`.
  */
-export function inferProvider(modelId: string): Provider | null {
+export function inferProvider(modelId: string, viaProxy = false): Provider | null {
   const m = modelId.toLowerCase();
-  if (m.includes("gemini")) return "vertex";
+  if (m.includes("gemini")) return viaProxy ? "gemini" : "vertex";
   if (m.includes("claude")) return "anthropic";
   if (m.includes("gpt") || m.includes("chatgpt") || m.includes("whisper") || /^o[0-9]/.test(m)) {
     return "openai";
@@ -143,19 +153,27 @@ export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
     misconfigured(`entry "${current}" needs both model_id and api_key`, { current });
   }
 
+  // Google's fields. Each goes into a URL or a request body, so a value that
+  // isn't plainly shaped is refused rather than sent.
+  const projectId = str(e.project_id) ?? str(e.projectId);
+  const location = str(e.location)?.toLowerCase();
+  const rawLevel = str(e.thinking_level) ?? str(e.thinkingLevel);
+  const baseUrl = str(e.base_url) ?? str(e.baseUrl);
+
+  // Through the proxy unless the entry points somewhere of its own (`base_url`)
+  // or asks for Vertex — which `project_id`/`location`, Vertex's own fields, do
+  // too, so such an entry keeps its meaning when the proxy is switched on.
+  const proxyKey = str(process.env.AI_PROXY_KEY);
+  const routable = Boolean(proxyKey) && !baseUrl;
   const explicit = str(e.provider)?.toLowerCase() as Provider | undefined;
-  const provider = explicit && PROVIDERS.has(explicit) ? explicit : inferProvider(model);
+  const provider =
+    explicit && PROVIDERS.has(explicit) ? explicit : inferProvider(model, routable && !projectId && !location);
   if (!provider) {
     misconfigured(`could not infer a provider for "${model}" — add "provider" to the entry`, {
       current,
     });
   }
 
-  // Google's fields. Each goes into a URL or a request body, so a value that
-  // isn't plainly shaped is refused rather than sent.
-  const projectId = str(e.project_id) ?? str(e.projectId);
-  const location = str(e.location)?.toLowerCase();
-  const rawLevel = str(e.thinking_level) ?? str(e.thinkingLevel);
   if ((projectId || location) && provider !== "vertex") {
     misconfigured(`entry "${current}" sets project_id/location, which only a Vertex entry takes`, {
       current,
@@ -190,7 +208,9 @@ export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
     provider,
     model,
     apiKey,
-    baseUrl: str(e.base_url) ?? str(e.baseUrl),
+    baseUrl,
+    // Never sent to Vertex or a `base_url` host: the proxy is the only place that key goes.
+    ...(routable && provider !== "vertex" ? { proxyKey } : {}),
     projectId,
     location,
     thinkingLevel,

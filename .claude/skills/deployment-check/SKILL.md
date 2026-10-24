@@ -232,6 +232,7 @@ Derived from what the code actually reads:
 | `ZEPTOMAIL_TOKEN`, `ZEPTOMAIL_API_URL`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | member invites silently never arrive |
 | `BETTERSTACK_SOURCE_TOKEN`, `BETTERSTACK_INGESTING_HOST`, `LOG_LEVEL` | you are flying blind in prod |
 | `AI_MODEL_LIST` | every AI feature below is off at once |
+| `AI_PROXY_KEY` | AI calls go straight to the providers instead of through the Playxoft AI proxy — Gemini then goes to Vertex, so the list's `gemini*` keys must be Vertex keys. Set, they must be Gemini API (AI Studio) keys, and a proxy refusal logs `pxError` (`px_unauthorized`, `px_byok_not_allowed`, `px_model_not_allowed`) with a `pxRequestId` |
 | `AI_PARSE_MODEL_CURRENT` | composer AI mode answers "not available" |
 | `AI_TRANSCRIBE_MODEL_CURRENT` | hold-to-talk mic dies |
 | `AI_CHAT_MODEL_CURRENT` | every SpendChat AI question answers "Couldn't answer right now" (beta: sample answers instead) |
