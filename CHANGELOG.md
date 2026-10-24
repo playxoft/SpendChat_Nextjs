@@ -18,6 +18,27 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.49.1] — 2026-10-24
+
+### Changed
+- **AI calls can go through the Playxoft AI proxy.** With `AI_PROXY_KEY` set,
+  AI input, voice and SpendChat AI calls to the Gemini API, OpenAI and
+  Anthropic go through `ai-proxy.playxoft.com`. The proxy calls the provider
+  from a region it serves and tries the next region if one is down, so AI keeps
+  working wherever Cloudflare runs the app. Each model entry still sends its
+  own provider key; the proxy key travels beside it and goes nowhere else. A
+  Gemini entry joins the proxy by naming the Gemini API (`"provider":"gemini"`,
+  with an AI Studio key); Vertex entries, and entries with their own `base_url`
+  (such as Grok), stay direct, and without `AI_PROXY_KEY` nothing changes.
+  Proxy failures are logged with the proxy's request id, and a refused Google
+  key with Google's reason (`API_KEY_SERVICE_BLOCKED`).
+
+### Fixed
+- **An AI model entry with a mistyped `provider` is turned off** with a
+  configuration log line, rather than quietly guessed from the model name, and
+  a key with characters a request header can't carry is refused the same way.
+  AI requests no longer follow redirects.
+
 ## [0.49.0] — 2026-10-22
 
 ### Added

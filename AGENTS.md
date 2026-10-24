@@ -295,13 +295,26 @@ Authentication, secrets via Doppler.
   speech model at all). Don't add a second list. Adding a feature means adding a
   `_CURRENT` var, an adapter in `ai-provider.ts` if the protocol is new, and the
   secret to the `wrangler.toml` list — unset simply disables that feature.
-  **Gemini goes through Vertex AI** (`provider: "vertex"`, what a `gemini*` id
-  infers), never the Gemini API by default: the Gemini API rejects callers by
-  location (400 FAILED_PRECONDITION) and the Worker can run in Cloudflare's Hong
-  Kong colo. Both share one adapter — `geminiUrl` is the only difference; the key
-  is a Google Cloud API key bound to a service account. Gemini 3+ never gets
-  `thinkingBudget` (Google: intermittent 400s), and Vertex 429/503s are retried
-  inside the feature's timeout.
+  **The Playxoft AI proxy** (`ai-proxy.playxoft.com`): once `AI_PROXY_KEY` is
+  set, every `gemini`, `openai` and `anthropic` entry without a `base_url` is
+  called through it. The proxy calls the provider from a region it serves and
+  fails over to the next, so a Worker placed in Cloudflare's Hong Kong colo still
+  works. It's bring-your-own-key — the entry's `api_key` stays in the provider's
+  key header, `AI_PROXY_KEY` rides in `x-px-key` (added in `post`, and only for
+  the proxy's own origin), and the proxy project needs `allowByok` plus every
+  model in its allowlist. The proxy fronts the **Gemini API**, not Vertex, so a
+  Gemini entry joins it by naming `"provider": "gemini"` with an AI Studio key; a
+  bare `gemini*` id is Vertex either way. Keep it that way: the route and the
+  kind of key live in the same entry, so adding or removing `AI_PROXY_KEY` never
+  pairs a key with an API that refuses it. A `base_url` entry (a host the proxy
+  doesn't serve, like Grok's) and a Vertex one (`provider: "vertex"`, a bare
+  `gemini*` id, or `project_id`/`location`) stay direct and never see the proxy
+  key. Don't add region pinning or location retries; the proxy owns those, and
+  failures log its `x-px-request-id` (`pxRequestId`) — including a 200 whose
+  reply is unusable. Vertex and the Gemini API share one adapter
+  — `geminiUrl` is the only difference. Gemini 3+ never gets `thinkingBudget`
+  (Google: intermittent 400s), and Vertex 429/503s are retried inside the
+  feature's timeout.
 - **Voice entry** (`m`, held) records in the browser, transcribes server-side, and
   drops the text into the AI note for the user to check — it never creates
   transactions directly, so the existing parse→review→confirm path is unchanged

@@ -72,9 +72,10 @@ function stubGemini({ fail = false, answer = "**Food** — $12.50 this month." }
   const requests: { url: string; body: Record<string, unknown> }[] = [];
   const spy = vi.fn(async (url: string, init?: { body?: unknown }) => {
     requests.push({ url, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
-    if (fail) return { ok: false, status: 500, json: async () => ({}), text: async () => "" };
+    if (fail) return { ok: false, status: 500, headers: new Headers(), json: async () => ({}), text: async () => "" };
     return {
       ok: true,
+      headers: new Headers(),
       json: async () => ({
         candidates: [{ content: { parts: [{ text: answer }] } }],
         usageMetadata: { promptTokenCount: 1500, candidatesTokenCount: 60 },

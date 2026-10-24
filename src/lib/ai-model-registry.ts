@@ -36,6 +36,20 @@ import { logger } from "@/lib/logger";
  * They never fall back to one another: an unset `_CURRENT` turns its feature
  * off even when another feature's names a working entry.
  *
+ *   AI_PROXY_KEY             The project's Playxoft AI proxy key. Set, every
+ *                            entry whose provider is gemini, openai or
+ *                            anthropic is called through the proxy, its own
+ *                            `api_key` still sent as the provider key (bring
+ *                            your own key). Not for an entry with a `base_url`
+ *                            (a host the proxy doesn't front, such as Grok's)
+ *                            or a Vertex one — those stay direct and never see
+ *                            the proxy key. A `gemini*` id alone is Vertex, so
+ *                            a Gemini entry joins the proxy by naming
+ *                            `"provider": "gemini"` (with an AI Studio key):
+ *                            the route and the kind of key it needs live in the
+ *                            same entry, and switching the proxy key on or off
+ *                            never pairs a key with an API that refuses it.
+ *
  * Unset (or misconfigured) → that feature reports "not available" and nothing
  * else breaks. Kept out of `ai-provider.ts` (which is excluded from the coverage
  * gate as I/O wiring) because this resolution is pure logic and is unit-tested.
@@ -54,7 +68,8 @@ function str(v: unknown): string | undefined {
  *
  * Gemini means Vertex AI: the Gemini API (AI Studio keys) turns callers away by
  * location, and a Worker can run in one of those places (see `geminiUrl` in
- * `ai-provider.ts`). An entry still reaches it with `"provider": "gemini"`.
+ * `ai-provider.ts`). An entry reaches it with `"provider": "gemini"` — through
+ * the proxy, which calls it from a region it serves, when `AI_PROXY_KEY` is set.
  */
 export function inferProvider(modelId: string): Provider | null {
   const m = modelId.toLowerCase();
@@ -80,6 +95,13 @@ const GCP_PROJECT_ID = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 
 /** `global`, `us`, `eu`, `us-central1`, `asia-south1` … */
 const GCP_LOCATION = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * What a key may hold: printable ASCII, no spaces. A key goes into a request
+ * header, and `fetch` rejects an invalid header value with an error that quotes
+ * it — which would carry the key into a log line.
+ */
+const HEADER_SAFE = /^[\x21-\x7e]+$/;
 
 /**
  * Resolve a feature's active model: the `AI_MODEL_LIST` entry its `_CURRENT`
@@ -142,11 +164,8 @@ export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
   if (!model || !apiKey) {
     misconfigured(`entry "${current}" needs both model_id and api_key`, { current });
   }
-
-  const explicit = str(e.provider)?.toLowerCase() as Provider | undefined;
-  const provider = explicit && PROVIDERS.has(explicit) ? explicit : inferProvider(model);
-  if (!provider) {
-    misconfigured(`could not infer a provider for "${model}" — add "provider" to the entry`, {
+  if (!HEADER_SAFE.test(apiKey)) {
+    misconfigured(`entry "${current}" has an api_key with characters a request header can't carry`, {
       current,
     });
   }
@@ -156,6 +175,27 @@ export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
   const projectId = str(e.project_id) ?? str(e.projectId);
   const location = str(e.location)?.toLowerCase();
   const rawLevel = str(e.thinking_level) ?? str(e.thinkingLevel);
+  const baseUrl = str(e.base_url) ?? str(e.baseUrl);
+
+  const proxyKey = str(process.env.AI_PROXY_KEY);
+  if (proxyKey && !HEADER_SAFE.test(proxyKey)) {
+    misconfigured("AI_PROXY_KEY has characters a request header can't carry");
+  }
+  const explicit = str(e.provider)?.toLowerCase();
+  if (explicit && !PROVIDERS.has(explicit as Provider)) {
+    // Not quietly re-inferred: a misspelt "vertex" would otherwise land on
+    // whichever API the model id implies, with a key meant for the other one.
+    misconfigured(`entry "${current}" names an unknown provider — use vertex, gemini, openai or anthropic`, {
+      current,
+    });
+  }
+  const provider = (explicit as Provider | undefined) ?? inferProvider(model);
+  if (!provider) {
+    misconfigured(`could not infer a provider for "${model}" — add "provider" to the entry`, {
+      current,
+    });
+  }
+
   if ((projectId || location) && provider !== "vertex") {
     misconfigured(`entry "${current}" sets project_id/location, which only a Vertex entry takes`, {
       current,
@@ -190,7 +230,10 @@ export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
     provider,
     model,
     apiKey,
-    baseUrl: str(e.base_url) ?? str(e.baseUrl),
+    baseUrl,
+    // Through the proxy unless the entry points somewhere of its own (`base_url`)
+    // or is Vertex, which the proxy doesn't front: the proxy key goes nowhere else.
+    ...(proxyKey && !baseUrl && provider !== "vertex" ? { proxyKey } : {}),
     projectId,
     location,
     thinkingLevel,

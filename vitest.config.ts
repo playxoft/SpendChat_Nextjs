@@ -18,6 +18,9 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    // Tests never reach the AI proxy: an AI_PROXY_KEY from the shell (`doppler
+    // run`) would switch every AI test's URLs onto it. Tests that want it stub it.
+    env: { AI_PROXY_KEY: "" },
     // Two suites, both Node: pure logic (fast, no I/O) and DB-backed integration.
     projects: [
       {
