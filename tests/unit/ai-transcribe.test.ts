@@ -227,6 +227,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
   const geminiOk = (text: string) =>
     vi.fn(async () => ({
       ok: true,
+      headers: new Headers(),
       json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }),
       text: async () => "",
     }));
@@ -309,6 +310,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
     });
     const fetchMock = vi.fn(async () => ({
       ok: true,
+      headers: new Headers(),
       json: async () => ({ text: "200 fruits" }),
       text: async () => "",
     }));
@@ -331,7 +333,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
 
   it("goes through the proxy once AI_PROXY_KEY is set — Gemini inline, Whisper multipart", async () => {
     vi.stubEnv("AI_PROXY_KEY", "pxk_test");
-    setModel({ model_id: "gemini-3.1-flash-lite", api_key: "k" });
+    setModel({ model_id: "gemini-3.1-flash-lite", api_key: "k", provider: "gemini" });
     const gemini = geminiOk("200 fruits");
     vi.stubGlobal("fetch", gemini);
     await expect(transcribeVoiceNote(OPTS)).resolves.toBe("200 fruits");
@@ -341,7 +343,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
     expect(JSON.parse(init.body).contents[0].parts[1].inlineData.data).toBe(AUDIO_B64);
 
     setModel({ model_id: "whisper-1", api_key: "k" });
-    const whisper = vi.fn(async () => ({ ok: true, json: async () => ({ text: "200 fruits" }), text: async () => "" }));
+    const whisper = vi.fn(async () => ({ ok: true, headers: new Headers(), json: async () => ({ text: "200 fruits" }), text: async () => "" }));
     vi.stubGlobal("fetch", whisper);
     await expect(transcribeVoiceNote(OPTS)).resolves.toBe("200 fruits");
     const [wUrl, wInit] = whisper.mock.calls[0]! as unknown as [string, { headers: Record<string, string>; body: FormData }];
@@ -355,6 +357,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
     setModel({ model_id: "whisper-1", api_key: "k" });
     const fetchMock = vi.fn(async () => ({
       ok: true,
+      headers: new Headers(),
       json: async () => ({ text: "200 fruits" }),
       text: async () => "",
     }));
@@ -385,7 +388,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
     setModel({ model_id: "whisper-1", api_key: "k" });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ ok: true, json: async () => ({ text: "" }), text: async () => "" })),
+      vi.fn(async () => ({ ok: true, headers: new Headers(), json: async () => ({ text: "" }), text: async () => "" })),
     );
     await expect(transcribeVoiceNote(OPTS)).rejects.toMatchObject({ status: 400 });
   });
@@ -396,6 +399,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
       "fetch",
       vi.fn(async () => ({
         ok: true,
+        headers: new Headers(),
         json: async () => ({ candidates: [{ finishReason: "SAFETY" }] }),
         text: async () => "",
       })),
@@ -407,7 +411,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
     setModel({ model_id: "whisper-1", api_key: "k" });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ ok: true, json: async () => ({}), text: async () => "" })),
+      vi.fn(async () => ({ ok: true, headers: new Headers(), json: async () => ({}), text: async () => "" })),
     );
     await expect(transcribeVoiceNote(OPTS)).rejects.toMatchObject({ status: 502 });
   });
@@ -433,6 +437,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
       "fetch",
       vi.fn(async () => ({
         ok: true,
+        headers: new Headers(),
         json: async () => ({
           candidates: [{ content: { parts: [{ text: "200 fruits" }] } }],
           usageMetadata: {
@@ -459,6 +464,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
       "fetch",
       vi.fn(async () => ({
         ok: true,
+        headers: new Headers(),
         json: async () => ({ text: "200 fruits", usage: { type: "duration", seconds: 12.5 } }),
         text: async () => "",
       })),
@@ -474,6 +480,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
       "fetch",
       vi.fn(async () => ({
         ok: true,
+        headers: new Headers(),
         json: async () => ({
           candidates: [{ content: { parts: [{ text: "" }] } }],
           usageMetadata: { promptTokenCount: 300, candidatesTokenCount: 0 },

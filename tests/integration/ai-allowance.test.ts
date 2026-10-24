@@ -55,6 +55,7 @@ function stubGemini({ fail = false }: { fail?: boolean } = {}) {
         });
     return {
       ok: true,
+      headers: new Headers(),
       json: async () => ({
         candidates: [{ content: { parts: [{ text }] } }],
         usageMetadata: isAudio
@@ -210,6 +211,7 @@ describe("monthly AI allowance", () => {
       "fetch",
       vi.fn(async () => ({
         ok: true,
+        headers: new Headers(),
         json: async () => ({ candidates: [{ content: { parts: [{ text: '{"transactions":[]}' }] } }] }),
         text: async () => "",
       })),

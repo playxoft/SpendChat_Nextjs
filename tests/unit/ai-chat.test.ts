@@ -517,11 +517,17 @@ describe("askChatModel — one call per provider, shapes on the wire", () => {
 
   it("goes through the proxy once AI_PROXY_KEY is set, the provider key beside the proxy key", async () => {
     vi.stubEnv("AI_PROXY_KEY", "pxk_test");
-    setChatModel({ model_id: "gemini-chat", api_key: "k" });
+    setChatModel({ model_id: "gemini-chat", api_key: "k", provider: "gemini" });
     let calls = stubFetch({ candidates: [{ content: { parts: [{ text: "Fine." }] } }] });
     await askChatModel({ cfg: resolveChatModel(), data: data(), history: [], question: "Food?" });
     expect(calls[0]!.url).toBe("https://ai-proxy.playxoft.com/api/gemini/v1beta/models/gemini-chat:generateContent");
     expect(calls[0]!.headers).toMatchObject({ "x-goog-api-key": "k", "x-px-key": "pxk_test" });
+
+    setChatModel({ model_id: "gpt-x", api_key: "k" });
+    calls = stubFetch({ choices: [{ message: { content: "Fine." } }] });
+    await askChatModel({ cfg: resolveChatModel(), data: data(), history: [], question: "Food?" });
+    expect(calls[0]!.url).toBe("https://ai-proxy.playxoft.com/api/openai/v1/chat/completions");
+    expect(calls[0]!.headers).toMatchObject({ Authorization: "Bearer k", "x-px-key": "pxk_test" });
 
     setChatModel({ model_id: "claude-x", api_key: "k" });
     calls = stubFetch({ content: [{ type: "text", text: "Fine." }] });

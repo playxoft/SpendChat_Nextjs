@@ -4,7 +4,13 @@ import { logger } from "@/lib/logger";
 // Shared with the client (the composer caps the textarea at the same length) —
 // see `ai-limits.ts` for why these don't live in this `server-only` module.
 import { MAX_DRAFTS, MAX_INPUT_CHARS } from "@/lib/ai-limits";
-import { aiFailed, callProviderWithUsage, type AiUsage, type ModelConfig } from "@/lib/ai-provider";
+import {
+  aiFailed,
+  callProviderWithUsage,
+  type AiUsage,
+  type ModelConfig,
+  type ProxyTrace,
+} from "@/lib/ai-provider";
 import { resolveModelFromEnv } from "@/lib/ai-model-registry";
 import {
   TAGS_PER_TRANSACTION_MAX,
@@ -171,9 +177,9 @@ function normalizeDate(raw: string | undefined, today: string): string {
 /**
  * Parse a model's text response into JSON, tolerating the quirks different
  * providers add: markdown code fences, or a JSON object embedded in prose.
- * Throws `aiFailed` when no JSON can be recovered.
+ * Throws `aiFailed` when no JSON can be recovered, logged with the proxy's trace.
  */
-function parseLoose(raw: string): unknown {
+function parseLoose(raw: string, trace: ProxyTrace = {}): unknown {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const body = (fenced ? fenced[1]! : raw).trim();
   try {
@@ -189,7 +195,7 @@ function parseLoose(raw: string): unknown {
         /* fall through */
       }
     }
-    logger.error("AI parse returned non-JSON", { event: "ai.parse.bad_json", chars: raw.length });
+    logger.error("AI parse returned non-JSON", { event: "ai.parse.bad_json", chars: raw.length, ...trace });
     throw aiFailed();
   }
 }
@@ -207,9 +213,15 @@ function parseLoose(raw: string): unknown {
  */
 export function draftsFromRawJson(
   raw: string,
-  opts: { categories: AiCategory[]; tags?: string[]; today: string },
+  opts: {
+    categories: AiCategory[];
+    tags?: string[];
+    today: string;
+    /** The proxy's trace on the reply, for the log if it isn't JSON. */
+    trace?: ProxyTrace;
+  },
 ): AiParsedDraft[] {
-  const payload = parseLoose(raw);
+  const payload = parseLoose(raw, opts.trace);
 
   const items =
     payload && typeof payload === "object" && Array.isArray((payload as { transactions?: unknown }).transactions)
@@ -317,12 +329,13 @@ export async function parseTransactionsText(opts: {
 
   const tagNames = opts.tags ?? [];
   const system = buildSystemPrompt(opts.currency, opts.today, expenseNames, incomeNames, tagNames);
-  const { text: raw, usage } = await callProviderWithUsage(cfg, system, text);
+  const { text: raw, usage, trace } = await callProviderWithUsage(cfg, system, text);
   if (usage) opts.onUsage?.(usage);
   const drafts = draftsFromRawJson(raw, {
     categories: opts.categories,
     tags: tagNames,
     today: opts.today,
+    trace,
   });
 
   logger.info(`AI parsed ${drafts.length} transaction(s) from a ${text.length}-char note`, {

@@ -37,12 +37,18 @@ import { logger } from "@/lib/logger";
  * off even when another feature's names a working entry.
  *
  *   AI_PROXY_KEY             The project's Playxoft AI proxy key. Set, every
- *                            Gemini, OpenAI and Anthropic entry is called
- *                            through the proxy, its own `api_key` still sent as
- *                            the provider key (bring your own key). Not for an
- *                            entry with a `base_url` (a host the proxy doesn't
- *                            front, such as Grok's) or a Vertex one — those stay
- *                            direct and never see the proxy key.
+ *                            entry whose provider is gemini, openai or
+ *                            anthropic is called through the proxy, its own
+ *                            `api_key` still sent as the provider key (bring
+ *                            your own key). Not for an entry with a `base_url`
+ *                            (a host the proxy doesn't front, such as Grok's)
+ *                            or a Vertex one — those stay direct and never see
+ *                            the proxy key. A `gemini*` id alone is Vertex, so
+ *                            a Gemini entry joins the proxy by naming
+ *                            `"provider": "gemini"` (with an AI Studio key):
+ *                            the route and the kind of key it needs live in the
+ *                            same entry, and switching the proxy key on or off
+ *                            never pairs a key with an API that refuses it.
  *
  * Unset (or misconfigured) → that feature reports "not available" and nothing
  * else breaks. Kept out of `ai-provider.ts` (which is excluded from the coverage
@@ -60,15 +66,14 @@ function str(v: unknown): string | undefined {
  * endpoint is the OpenAI shape on every host that serves it (OpenAI, Groq, and
  * the OpenAI-compatible crowd). Anything else must set `provider` explicitly.
  *
- * Gemini means the Gemini API when the call goes through the proxy
- * (`viaProxy`), which always calls it from a region it serves; called
- * directly, it means Vertex AI, since the Gemini API turns callers away by
- * location and a Worker can run in one of those places (see `geminiUrl` in
- * `ai-provider.ts`). Either can be named with `"provider"`.
+ * Gemini means Vertex AI: the Gemini API (AI Studio keys) turns callers away by
+ * location, and a Worker can run in one of those places (see `geminiUrl` in
+ * `ai-provider.ts`). An entry reaches it with `"provider": "gemini"` — through
+ * the proxy, which calls it from a region it serves, when `AI_PROXY_KEY` is set.
  */
-export function inferProvider(modelId: string, viaProxy = false): Provider | null {
+export function inferProvider(modelId: string): Provider | null {
   const m = modelId.toLowerCase();
-  if (m.includes("gemini")) return viaProxy ? "gemini" : "vertex";
+  if (m.includes("gemini")) return "vertex";
   if (m.includes("claude")) return "anthropic";
   if (m.includes("gpt") || m.includes("chatgpt") || m.includes("whisper") || /^o[0-9]/.test(m)) {
     return "openai";
@@ -90,6 +95,13 @@ const GCP_PROJECT_ID = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 
 /** `global`, `us`, `eu`, `us-central1`, `asia-south1` … */
 const GCP_LOCATION = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * What a key may hold: printable ASCII, no spaces. A key goes into a request
+ * header, and `fetch` rejects an invalid header value with an error that quotes
+ * it — which would carry the key into a log line.
+ */
+const HEADER_SAFE = /^[\x21-\x7e]+$/;
 
 /**
  * Resolve a feature's active model: the `AI_MODEL_LIST` entry its `_CURRENT`
@@ -152,6 +164,11 @@ export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
   if (!model || !apiKey) {
     misconfigured(`entry "${current}" needs both model_id and api_key`, { current });
   }
+  if (!HEADER_SAFE.test(apiKey)) {
+    misconfigured(`entry "${current}" has an api_key with characters a request header can't carry`, {
+      current,
+    });
+  }
 
   // Google's fields. Each goes into a URL or a request body, so a value that
   // isn't plainly shaped is refused rather than sent.
@@ -160,14 +177,19 @@ export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
   const rawLevel = str(e.thinking_level) ?? str(e.thinkingLevel);
   const baseUrl = str(e.base_url) ?? str(e.baseUrl);
 
-  // Through the proxy unless the entry points somewhere of its own (`base_url`)
-  // or asks for Vertex — which `project_id`/`location`, Vertex's own fields, do
-  // too, so such an entry keeps its meaning when the proxy is switched on.
   const proxyKey = str(process.env.AI_PROXY_KEY);
-  const routable = Boolean(proxyKey) && !baseUrl;
-  const explicit = str(e.provider)?.toLowerCase() as Provider | undefined;
-  const provider =
-    explicit && PROVIDERS.has(explicit) ? explicit : inferProvider(model, routable && !projectId && !location);
+  if (proxyKey && !HEADER_SAFE.test(proxyKey)) {
+    misconfigured("AI_PROXY_KEY has characters a request header can't carry");
+  }
+  const explicit = str(e.provider)?.toLowerCase();
+  if (explicit && !PROVIDERS.has(explicit as Provider)) {
+    // Not quietly re-inferred: a misspelt "vertex" would otherwise land on
+    // whichever API the model id implies, with a key meant for the other one.
+    misconfigured(`entry "${current}" names an unknown provider — use vertex, gemini, openai or anthropic`, {
+      current,
+    });
+  }
+  const provider = (explicit as Provider | undefined) ?? inferProvider(model);
   if (!provider) {
     misconfigured(`could not infer a provider for "${model}" — add "provider" to the entry`, {
       current,
@@ -209,8 +231,9 @@ export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
     model,
     apiKey,
     baseUrl,
-    // Never sent to Vertex or a `base_url` host: the proxy is the only place that key goes.
-    ...(routable && provider !== "vertex" ? { proxyKey } : {}),
+    // Through the proxy unless the entry points somewhere of its own (`base_url`)
+    // or is Vertex, which the proxy doesn't front: the proxy key goes nowhere else.
+    ...(proxyKey && !baseUrl && provider !== "vertex" ? { proxyKey } : {}),
     projectId,
     location,
     thinkingLevel,

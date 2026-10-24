@@ -232,7 +232,7 @@ Derived from what the code actually reads:
 | `ZEPTOMAIL_TOKEN`, `ZEPTOMAIL_API_URL`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | member invites silently never arrive |
 | `BETTERSTACK_SOURCE_TOKEN`, `BETTERSTACK_INGESTING_HOST`, `LOG_LEVEL` | you are flying blind in prod |
 | `AI_MODEL_LIST` | every AI feature below is off at once |
-| `AI_PROXY_KEY` | AI calls go straight to the providers instead of through the Playxoft AI proxy — Gemini then goes to Vertex, so the list's `gemini*` keys must be Vertex keys. Set, they must be Gemini API (AI Studio) keys, and a proxy refusal logs `pxError` (`px_unauthorized`, `px_byok_not_allowed`, `px_model_not_allowed`) with a `pxRequestId` |
+| `AI_PROXY_KEY` | AI calls go straight to the providers instead of through the Playxoft AI proxy — a `"provider":"gemini"` entry then calls the Gemini API directly, which turns the Worker away when it runs in a colo Google doesn't serve (Hong Kong). Bare `gemini*` entries are Vertex either way and never use the proxy. Set, a proxy refusal logs `pxError` (`px_unauthorized`, `px_byok_not_allowed`, `px_model_not_allowed`) with a `pxRequestId`. (The Playxoft proxy guide calls this secret `PX_AI_KEY`; this app reads `AI_PROXY_KEY`.) |
 | `AI_PARSE_MODEL_CURRENT` | composer AI mode answers "not available" |
 | `AI_TRANSCRIBE_MODEL_CURRENT` | hold-to-talk mic dies |
 | `AI_CHAT_MODEL_CURRENT` | every SpendChat AI question answers "Couldn't answer right now" (beta: sample answers instead) |
@@ -245,6 +245,15 @@ Each `*_MODEL_CURRENT` must name an entry that exists in that Worker's
 `doppler secrets get AI_PARSE_MODEL_CURRENT AI_TRANSCRIBE_MODEL_CURRENT AI_CHAT_MODEL_CURRENT --config prd --plain`.
 `AI_PARSE_MODEL`, `AI_TRANSCRIBE_MODEL` and `AI_CHAT_MODEL` (the old per-feature
 lists) are read by nothing — delete them from the Worker if they're still bound.
+
+**Moving a Worker onto the proxy:** push `AI_PROXY_KEY` first — on its own it
+changes nothing, since a bare `gemini*` entry stays on Vertex — then the
+`AI_MODEL_LIST` whose Gemini entries carry `"provider":"gemini"` and an AI Studio
+key. Each `wrangler secret put` deploys a version of its own; to switch in one
+step, `wrangler versions secret put` both and `wrangler versions deploy` once.
+Then make one real AI call (a composer AI note) and watch `wrangler tail` for
+`ai.*.http_error`: a key paired with the wrong API is a 403 with
+`errorReason: API_KEY_SERVICE_BLOCKED` (or `API_KEY_INVALID`), not a `bad_config`.
 
 **The AI and mail ones fail *quietly*** — no error, just a feature that stopped
 existing. That is why they are enumerated instead of "it deployed fine".
@@ -439,7 +448,8 @@ And watch live logs for the first minute:
 npx wrangler tail --env production --format pretty
 ```
 Look for `db.` errors (a missed migration), `r2.` warnings (missing/wrong R2
-secrets), and `*.bad_config` (a missing AI pair).
+secrets), `*.bad_config` (a missing AI pair) and `ai.*.http_error` (an AI key
+the API refuses, or a proxy refusal — `errorReason` / `pxError` say which).
 
 **Rollback:** Cloudflare keeps prior Worker versions — roll back in the
 dashboard (Workers → spendchat-production → Deployments) or with
