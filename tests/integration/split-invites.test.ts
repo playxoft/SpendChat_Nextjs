@@ -37,7 +37,8 @@ import { bootstrapUser, firstProfileId, registerUser, workspaceIdOf } from "./he
 const db = () => getTestDb();
 const sent = () => vi.mocked(sendEmail).mock.calls.map((c) => c[0]);
 const me = (alias: string) => ({ id: uid(alias), email: `${alias}@example.com` });
-const today = "2026-10-01";
+// The real date: a budget alert only fires for a month that is still current.
+const today = new Date().toISOString().slice(0, 10);
 
 function ok<T extends { ok: boolean }>(res: T): Extract<T, { ok: true }> {
   if (!res.ok) throw new Error(`action failed: ${(res as unknown as { error: string }).error}`);
