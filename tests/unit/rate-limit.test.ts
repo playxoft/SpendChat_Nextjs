@@ -221,7 +221,9 @@ describe("failing closed — AI", () => {
     mocks.getRateLimiterStub.mockReturnValue(stub);
     const check = startRateLimit("u1", "ai").enforce(free);
 
-    // Waking an object loads the whole Worker bundle — ~1.5 s in production.
+    // Waking an object loads the whole Worker bundle — ~1.5 s in production;
+    // keep the deadline well clear of that, not just past it.
+    expect(AI_RATE_LIMIT_TIMEOUT_MS).toBeGreaterThanOrEqual(3_000);
     await vi.advanceTimersByTimeAsync(1_500);
     await expect(check).resolves.toBeUndefined();
     expect(mocks.warn).not.toHaveBeenCalled();

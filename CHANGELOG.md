@@ -26,8 +26,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   limiter before calling the model, and refuse when it doesn't answer in time. Waking a
   person's limiter after it has gone idle takes about 1.5 s in production, but the AI check
   gave up after 1 s, so the first AI request after a pause was always refused and only a
-  retry got through. It now waits up to 5 s. A limiter that's actually down still refuses
-  AI requests, after the longer wait.
+  retry got through. It now waits up to 5 s. A limiter that doesn't answer still has its AI
+  requests refused, after the longer wait.
 
 ## [0.49.1] — 2026-10-24
 
