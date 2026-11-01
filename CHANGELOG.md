@@ -18,6 +18,17 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.49.2] — 2026-11-01
+
+### Fixed
+- **The first AI request after a quiet spell no longer answers "AI requests are paused".**
+  SpendChat AI, the composer's AI mode and voice entry each check the per-person rate
+  limiter before calling the model, and refuse when it doesn't answer in time. Waking a
+  person's limiter after it has gone idle takes about 1.5 s in production, but the AI check
+  gave up after 1 s, so the first AI request after a pause was always refused and only a
+  retry got through. It now waits up to 5 s. A limiter that's actually down still refuses
+  AI requests, after the longer wait.
+
 ## [0.49.1] — 2026-10-24
 
 ### Changed

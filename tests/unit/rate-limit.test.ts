@@ -204,8 +204,28 @@ describe("failing closed — AI", () => {
     expect(await pending).toMatchObject({ status: 429 });
     expect(stub.undo).not.toHaveBeenCalled(); // nothing to undo yet…
 
-    land(snapshotOf(1, T0 + 1_500)); // …the hit lands late,
-    await vi.waitFor(() => expect(stub.undo).toHaveBeenCalledWith("ai", T0 + 1_500, 1)); // and is taken back
+    const late = T0 + AI_RATE_LIMIT_TIMEOUT_MS + 500;
+    land(snapshotOf(1, late)); // …the hit lands late,
+    await vi.waitFor(() => expect(stub.undo).toHaveBeenCalledWith("ai", late, 1)); // and is taken back
+  });
+
+  it("C8: AI waits out a cold Durable Object instead of refusing", async () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], now: T0 });
+    const stub = {
+      hit: vi.fn(
+        () => new Promise<RateSnapshot>((resolve) => setTimeout(() => resolve(snapshotOf(1, T0 + 1_500)), 1_500)),
+      ),
+      undo: vi.fn(async () => {}),
+    };
+    mocks.getRateLimiterStub.mockReturnValue(stub);
+    const check = startRateLimit("u1", "ai").enforce(free);
+
+    // Waking an object loads the whole Worker bundle — ~1.5 s in production.
+    await vi.advanceTimersByTimeAsync(1_500);
+    await expect(check).resolves.toBeUndefined();
+    expect(mocks.warn).not.toHaveBeenCalled();
+    expect(stub.undo).not.toHaveBeenCalled();
   });
 
   it("C8: AI fails closed when the binding errors", async () => {

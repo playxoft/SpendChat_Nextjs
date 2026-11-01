@@ -73,8 +73,13 @@ import {
 /** How long a create or read waits for the Durable Object before failing open. */
 export const RATE_LIMIT_TIMEOUT_MS = 250;
 
-/** How long an AI request waits before failing closed — AI calls take seconds anyway. */
-export const AI_RATE_LIMIT_TIMEOUT_MS = 1_000;
+/**
+ * How long an AI request waits before failing closed — AI calls take seconds
+ * anyway. Long enough for a cold Durable Object: it lives in this Worker's
+ * script, so waking one loads the whole app bundle (~1.5 s seen in production),
+ * and at 1 s the first AI request after a quiet spell was always refused.
+ */
+export const AI_RATE_LIMIT_TIMEOUT_MS = 5_000;
 
 /** The wait an AI request is told when the limiter can't be reached. */
 export const AI_UNAVAILABLE_RETRY_SECONDS = 5;
