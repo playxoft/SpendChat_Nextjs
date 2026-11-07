@@ -18,7 +18,7 @@ import { isCalendarDay } from "./dates";
 import { SCOPE_MAX_PROFILE_IDS } from "./profile-scope";
 import { defaultSidebarNav, normalizeSidebarNav } from "./sidebar-nav";
 import { phoneProblem } from "./contact-fields";
-import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
+import { PERSONAL_PLANS, PLAN_LIMITS, SPLIT_GROUP_MAX_PEOPLE } from "./plans";
 import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX, SPLIT_IMPORT_KEY_PATTERN } from "./split-import";
 import {
   CURRENCIES,
@@ -1658,11 +1658,15 @@ export type UpdateBudgetInput = z.input<typeof updateBudgetSchema>;
 export const AI_CHAT_TITLE_MAX = 80;
 
 /**
- * Longest question one message may ask, in characters. A question is a
- * sentence or two; the cap keeps a paste from turning one AI action into a
- * prompt the size of a document. The composer enforces it too.
+ * Longest question one message may ask on any plan, in characters — the top
+ * plan's `aiQuestionChars`. A question is a sentence or two; the cap keeps a
+ * paste from turning one AI action into a prompt the size of a document. Each
+ * workspace is then held to its own plan's cap (`askQuestion`), and the
+ * composer stops typing there too.
  */
-export const AI_CHAT_QUESTION_MAX = 1000;
+export const AI_CHAT_QUESTION_MAX = Math.max(
+  ...PERSONAL_PLANS.map((p) => PLAN_LIMITS[p].aiQuestionChars),
+);
 
 const aiChatIdSchema = z.string().uuid("That chat doesn't exist");
 

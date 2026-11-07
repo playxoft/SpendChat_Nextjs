@@ -120,6 +120,16 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
           cell: (p) => count(PLAN_LIMITS[p].aiActionsPerMonth),
         },
         {
+          label: "Longest AI note",
+          hint: "Characters in one note the AI turns into entries. One note can hold many entries.",
+          cell: (p) => `${count(PLAN_LIMITS[p].aiNoteChars)} characters`,
+        },
+        {
+          label: "Longest SpendChat AI question",
+          hint: "Characters in one question about your money.",
+          cell: (p) => `${count(PLAN_LIMITS[p].aiQuestionChars)} characters`,
+        },
+        {
           label: "AI top-ups",
           hint: `${count(TOPUP.actions)} more actions for ${money(topUpPrice(currency))}, valid ${TOPUP.validityMonths} months.`,
           cell: (p) => PLAN_LIMITS[p].topUps,

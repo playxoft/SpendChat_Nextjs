@@ -8,7 +8,7 @@ import { LockGlyph } from "./limit-lock";
 import { usePlan } from "./upgrade-dialog";
 
 /**
- * "38 of 50 AI actions left this month" — the workspace's monthly AI allowance,
+ * "18 of 30 AI actions left this month" — the workspace's monthly AI allowance,
  * on the composers that spend it (the tracker's AI mode and Ask), plus any
  * top-up actions it has left ("· +450 top-up"), which carry on once the
  * month's allowance is spent.

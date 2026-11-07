@@ -461,7 +461,7 @@ describe("AI allowance", () => {
     const deleted = "00000000-0000-4000-8000-0000000dead1";
     await logAi([
       // Spent in a free workspace the owner has since deleted.
-      { workspaceId: deleted, ownerId: uid("own"), plan: "free", units: 30 },
+      { workspaceId: deleted, ownerId: uid("own"), plan: "free", units: 18 },
       // Last month's, in the same deleted workspace — not this month.
       { workspaceId: deleted, ownerId: uid("own"), plan: "free", units: 40, createdAt: lastMonth },
       // Someone else's free actions.
@@ -469,8 +469,8 @@ describe("AI allowance", () => {
       // The same owner's actions on a *paid* workspace are that workspace's own.
       { workspaceId: deleted, ownerId: uid("own"), plan: "pro", units: 100 },
     ]);
-    expect(await used(W)).toBe(30);
-    expect(await getAiAllowance(W, NOW)).toMatchObject({ used: 30, limit: 50, remaining: 20 });
+    expect(await used(W)).toBe(18);
+    expect(await getAiAllowance(W, NOW)).toMatchObject({ used: 18, limit: 30, remaining: 12 });
   });
 
   it("C2: a paid workspace counts only its own rows, not the owner's free ones", async () => {
@@ -484,10 +484,10 @@ describe("AI allowance", () => {
 
   it("C3: usage carries over on upgrade — free → pro keeps what's been used", async () => {
     const W = await ownerOn("free");
-    await logAi([{ workspaceId: W, ownerId: uid("own"), plan: "free", units: 45 }]);
-    expect(await getAiAllowance(W, NOW)).toMatchObject({ used: 45, limit: 50, remaining: 5 });
+    await logAi([{ workspaceId: W, ownerId: uid("own"), plan: "free", units: 25 }]);
+    expect(await getAiAllowance(W, NOW)).toMatchObject({ used: 25, limit: 30, remaining: 5 });
     await setWorkspacePlan(W, "pro");
-    expect(await getAiAllowance(W, NOW)).toMatchObject({ used: 45, limit: 1000, remaining: 955 });
+    expect(await getAiAllowance(W, NOW)).toMatchObject({ used: 25, limit: 1000, remaining: 975 });
   });
 
   it("resets on the 1st (UTC) of next month", async () => {

@@ -305,9 +305,12 @@ explains the note syntax.
 **Compose → parse → review → save.** Nothing is written until the final step:
 
 1. **Note field.** Placeholder: `"Describe your spending — e.g. 200 fruits,
-   1000 electricity (June bill) /Bills, got 5000 salary"`. Max **3000** chars
-   (2000 before spec 6.5.0 — cap the field client-side; the server 400s past
-   it). Syntax the parser
+   1000 electricity (June bill) /Bills, got 5000 salary"`. Max = the plan's
+   **`usage.ai.noteMaxChars`** (Free 1000 · Plus 2000 · Pro 3000 since spec
+   6.15.0; 3000 on every plan from 6.5.0, 2000 before) — cap the field
+   client-side and show a small "120 / 1,000" counter against it, as the web
+   composer does (muted, amber in the last 10%, red at the cap); the server
+   400s past it. Syntax the parser
    honours — surface these in a help sheet:
    - one transaction per item/amount ("200 fruits, 100 veg" = two rows);
    - `/CategoryName` picks a category (a slash followed by a letter; a slash
@@ -386,8 +389,8 @@ style — on web it's hold the button or hold `M`):
 
 **Gating recap:** AI mode (toggle + mic) is hidden for viewers; both endpoints
 also enforce editor + a shared 30-requests/hour per-user quota server-side, and
-(spec 6.5.0) the workspace's monthly AI allowance (50 / 300 / 1,000 actions on
-Free / Plus / Pro). Voice additionally needs Pro.
+(spec 6.5.0) the workspace's monthly AI allowance (30 / 300 / 1,000 actions on
+Free / Plus / Pro; Free was 50 before 6.15.0). Voice additionally needs Pro.
 
 ---
 

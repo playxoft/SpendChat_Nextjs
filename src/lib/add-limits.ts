@@ -255,7 +255,7 @@ function capLock(
 }
 
 /**
- * The workspace's monthly AI actions are spent: "Free includes 50 AI actions a
+ * The workspace's monthly AI actions are spent: "Free includes 30 AI actions a
  * month — upgrade to Plus for 300." Shown on the AI composers (the tracker's AI
  * mode, Ask) once their "actions left" line reaches 0, before a send fails.
  */

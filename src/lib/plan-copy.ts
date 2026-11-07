@@ -266,6 +266,9 @@ export function planChanges(from: PersonalPlan, to: PersonalPlan): PlanChange[] 
   };
   num("People in the workspace", a.members, b.members);
   num("AI actions a month", a.aiActionsPerMonth, b.aiActionsPerMonth);
+  const chars = (n: number) => `${count(n)} characters`;
+  num("Longest AI note", a.aiNoteChars, b.aiNoteChars, chars);
+  num("Longest SpendChat AI question", a.aiQuestionChars, b.aiQuestionChars, chars);
   num("Storage", a.storageBytes, b.storageBytes, formatPlanStorage);
   num("Spaces", a.spaces, b.spaces);
   num("Profiles in each space", a.profilesPerSpace, b.profilesPerSpace);

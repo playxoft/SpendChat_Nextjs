@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.14.0"
+  version: "6.15.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -72,8 +72,8 @@ info:
     the **editor** role in the current workspace (403 otherwise), the
     per-person **AI rate limit** shared by both endpoints (`429
     rate_limited`, checked first — see Rate limits), the workspace's monthly **AI
-    allowance** from its plan — 50 / 300 / 1,000 AI actions per UTC calendar
-    month on Free / Plus / Pro (`403 plan_limit`, `limit: "aiActions"` once
+    allowance** from its plan — 30 / 300 / 1,000 AI actions per UTC calendar
+    month on Free / Plus / Pro — Free was 50 before 6.15.0 (`403 plan_limit`, `limit: "aiActions"` once
     it's spent — see `GET /usage` → `ai`), voice entry for transcription
     (Pro only — otherwise `403 plan_limit`, `limit: "voice"`),
     `503 ai_unavailable` when the operator hasn't configured that feature's
@@ -2820,8 +2820,9 @@ paths:
         omitted means `typed`; any other value is a 422.
 
         Gates, in order: 429 (the per-person `ai` rate limit — see Rate
-        limits), 422 (bad `source`), 400 (empty or > 3000-char note,
-        bad timezone), 403 `forbidden` (viewer in this workspace),
+        limits), 422 (bad `source`), 400 (empty note, a note longer than
+        the plan allows — `GET /usage` → `ai.noteMaxChars`, since 6.15.0 —
+        or a bad timezone), 403 `forbidden` (viewer in this workspace),
         403 `plan_limit` with
         `limit: "aiActions"` once the workspace's monthly allowance is spent
         (`max` = the allowance, `used` = actions counted this month; it
@@ -5289,7 +5290,8 @@ components:
               format: date-time
               description: When the soonest-expiring top-up with actions left expires (since 6.11.0); null when there are none.
             resetsAt: { type: string, format: date-time, description: When the allowance refills — the first instant of next month (UTC). }
-          required: [used, limit, remaining, topUpRemaining, topUpExpiresAt, resetsAt]
+            noteMaxChars: { type: integer, description: "Longest note `POST /ai/parse` takes on this plan, in characters (Free 1000, Plus 2000, Pro 3000). Cap the note field here and show a counter against it. Since 6.15.0." }
+          required: [used, limit, remaining, topUpRemaining, topUpExpiresAt, resetsAt, noteMaxChars]
         storage:
           type: object
           description: >
@@ -6239,7 +6241,11 @@ components:
           type: string
           minLength: 1
           maxLength: 3000
-          description: The free-text note to parse (trimmed server-side). The cap was 2000 before 6.5.0.
+          description: >
+            The free-text note to parse (trimmed server-side). Since 6.15.0 the
+            cap is the workspace plan's — `GET /usage` → `ai.noteMaxChars`
+            (Free 1000, Plus 2000, Pro 3000); 3000 is the highest. It was 3000
+            on every plan from 6.5.0, and 2000 before that.
         timezone:
           type: string
           description: IANA zone (e.g. Asia/Kolkata) anchoring "today" for relative dates. Send the device zone; omitted → UTC.

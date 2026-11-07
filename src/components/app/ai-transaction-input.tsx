@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import {
   ArrowUp,
   Loader2,
@@ -29,7 +29,7 @@ import {
   parseTransactionsWithAI,
   transcribeVoiceNoteAction,
 } from "@/actions/transactions";
-import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
+import { aiNoteMaxChars } from "@/lib/ai-limits";
 import { primaryBcp47 } from "@/lib/voice-languages";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
 import { useBulkSelecting } from "@/hooks/use-bulk-selecting";
@@ -49,6 +49,7 @@ import { PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
 import { planLimitOf, type PlanLimitInfo } from "@/lib/plan-limit";
 import type { AiActionsLeft } from "@/lib/ai-limits";
 import { AiActionsLeftLine } from "./ai-actions-left";
+import { NoteCharCount } from "./note-char-count";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
@@ -206,6 +207,9 @@ export function AiTransactionInput({
   // hidden, and M opens the upgrade dialog instead of recording. Plan-limit
   // failures from the model calls below open the same dialog.
   const { voiceAllowed, plan, showUpgrade, reportFailure } = usePlan();
+  /** This plan's longest note (`aiNoteChars`) — the box stops there, and counts toward it. */
+  const noteMax = aiNoteMaxChars(plan);
+  const noteCountId = useId();
   const voiceUpgrade: PlanLimitInfo = { limit: "voice", plan, upgradeTo: lowestPlanWith("voice") };
   // Re-seeded when the view changes (a sidebar click doesn't remount this), so
   // an entry never lands in a profile that isn't on screen.
@@ -524,10 +528,10 @@ export function AiTransactionInput({
       // Dictating onto an already-long note can overflow the cap. Say so —
       // silently dropping the tail means the user watches the mic finish and
       // never learns that part of what they just said didn't make it.
-      if (joined.length > MAX_INPUT_CHARS) {
+      if (joined.length > noteMax) {
         toast.warning("Your note is full — the end of that recording was cut off.");
       }
-      setText(joined.slice(0, MAX_INPUT_CHARS));
+      setText(joined.slice(0, noteMax));
       dictatedRef.current = true;
       setCategoryDismissed(true);
       requestAnimationFrame(() => {
@@ -986,9 +990,10 @@ export function AiTransactionInput({
             // size to the text instead) — kept as the fallback everywhere else,
             // where it still gives the empty box the height `min-h` pins below.
             rows={dense ? 1 : 2}
-            // The server rejects anything longer; stop it here so a big paste
-            // doesn't cost a round-trip (and a quota slot) just to be refused.
-            maxLength={MAX_INPUT_CHARS}
+            // The plan's cap. The server rejects anything longer; stop it here
+            // so a big paste doesn't cost a round-trip just to be refused.
+            maxLength={noteMax}
+            aria-describedby={noteCountId}
             placeholder="Describe your spending — e.g. 200 fruits, 1000 electricity (June bill) /Bills, got 5000 salary"
             aria-label="Describe your transactions"
             // Content-sized *while this is the visible pane*, so the box grows a
@@ -1033,6 +1038,19 @@ export function AiTransactionInput({
               voiceAllowed ? (dense ? "pr-20" : "pr-24") : dense ? "pr-11" : "pr-12",
             )}
             disabled={parsing}
+          />
+          {/* "120 / 1,000" in the corner opposite the buttons, inside the room
+              the box's `pb` already keeps clear for them, so it costs no height.
+              Centred on the buttons' row; its right edge stops where they start. */}
+          <NoteCharCount
+            id={noteCountId}
+            length={text.length}
+            plan={plan}
+            className={cn(
+              "absolute left-3",
+              dense ? "bottom-3" : "bottom-3.5",
+              voiceAllowed ? (dense ? "right-20" : "right-24") : dense ? "right-11" : "right-12",
+            )}
           />
           {/* Mic left of send: dictate, then send — left to right, in order. */}
           {/* Tucked to the box's corner: the `pb` above is sized to exactly clear
