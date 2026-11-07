@@ -18,6 +18,29 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.50.1] — 2026-11-07
+
+### Fixed
+- **"Four ways to add a transaction" on phones.** The scroll-pinned demo left the widget a
+  sliver with no room for the feed it exists to show. Below desktop width it's now a plain
+  stack: four tabs (Chat, AI, Voice, Paste), the demo at a readable height, and the chosen
+  method's description under it. It moves through the four on its own until you tap one.
+  Desktop is unchanged.
+- **The mobile menu folds Features and Tools.** Each shows its own link and an arrow that
+  unfolds its pages, instead of every feature and tool listed open.
+- **No currency chip next to the Monthly/Yearly toggle.** Prices are already in your
+  currency; the currency picker still appears in local development only.
+- **"Compare every plan" keeps its section titles in place.** Scrolling the table sideways
+  no longer carries "Tracking", "Analytics" and the rest off screen, and on a phone the
+  feature column is narrower so the plans have room.
+- **Blog posts on phones.** The breadcrumb trail stays on one line (a long title truncates
+  instead of repeating as a second heading), the tag, date and read time sit on one row,
+  the title is sized for a phone, and the "Updated" date is no longer shown (it stays in
+  the page's search-engine data).
+- **Blog images open full screen.** Tap or click any image in a post, cover included, to
+  see it full screen on the page. Close it with the X, Escape, a tap, or your phone's back
+  button, which closes the image instead of leaving the post.
+
 ## [0.50.0] — 2026-11-06
 
 ### Added

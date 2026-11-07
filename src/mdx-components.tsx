@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ComponentPropsWithoutRef } from "react";
+import { ZoomableImage } from "@/components/marketing/zoomable-image";
 
 /**
  * Global components applied to every MDX file (the blog lives in
@@ -95,9 +96,15 @@ const components = {
   ),
   img: ({ alt = "", ...props }: ComponentPropsWithoutRef<"img">) => (
     // Blog images have unknown intrinsic dimensions, so a plain <img> is simpler
-    // than next/image here; posts are static and images are lazy-loaded.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img className="mt-6 rounded-xl border" loading="lazy" alt={alt} {...props} />
+    // than next/image here; posts are static and images are lazy-loaded. A tap
+    // opens it full screen (`ZoomableImage`).
+    <ZoomableImage
+      wrapperClassName="mt-6"
+      className="w-full rounded-xl border"
+      loading="lazy"
+      alt={alt}
+      {...props}
+    />
   ),
 };
 

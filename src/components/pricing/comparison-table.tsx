@@ -266,10 +266,10 @@ export function ComparisonTable({
       {controls ? <PricingControls className="mb-5" /> : null}
 
       <div className="overflow-x-auto rounded-3xl border bg-card [scrollbar-width:thin]">
-        <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left">
+        <table className="w-full min-w-[36rem] border-separate border-spacing-0 text-left">
           <thead>
             <tr>
-              <th className="sticky left-0 z-20 w-[34%] bg-card px-6 py-5 align-bottom text-sm font-medium text-muted-foreground">
+              <th className="sticky left-0 z-20 w-36 bg-card px-4 py-5 align-bottom text-sm font-medium text-muted-foreground sm:w-[34%] sm:px-6">
                 <span className="sr-only">Feature</span>
               </th>
               {PERSONAL_PLANS.map((id, i) => (
@@ -298,16 +298,19 @@ export function ComparisonTable({
                 <th
                   colSpan={PERSONAL_PLANS.length + 1}
                   scope="colgroup"
-                  className="border-t bg-muted/40 px-6 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                  className="border-t bg-muted/40 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:px-6"
                 >
-                  {s.title}
+                  {/* The cell spans the whole row, so it scrolls sideways with
+                      the plans; the title itself stays put, like the feature
+                      names under it. */}
+                  <span className="sticky left-4 sm:left-6">{s.title}</span>
                 </th>
               </tr>
               {s.rows.map((r) => (
                 <tr key={r.label} className="group">
                   <th
                     scope="row"
-                    className="sticky left-0 z-10 border-t bg-card px-6 py-3.5 text-sm font-normal group-hover:bg-muted"
+                    className="sticky left-0 z-10 border-t bg-card px-4 py-3.5 text-sm font-normal group-hover:bg-muted sm:px-6"
                   >
                     <span className="block">{r.label}</span>
                     {r.hint ? <span className="mt-0.5 block text-xs text-muted-foreground">{r.hint}</span> : null}
