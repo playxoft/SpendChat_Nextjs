@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import { ArrowUpRight, Keyboard, Mic, Minus, Paperclip, Sparkles } from "lucide-react";
 import { DemoFrame } from "./demo-frame";
 import { MAX_INPUT_CHARS, MAX_RECORDING_MS } from "@/lib/ai-limits";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
 /**
@@ -97,7 +98,7 @@ const FLOWS: Flow[] = [
     sent: [
       {
         what: "Your note, as typed",
-        detail: `One string, capped at ${MAX_INPUT_CHARS.toLocaleString("en-US")} characters. Whatever you wrote is what the model sees.`,
+        detail: `One string, capped at ${PLAN_LIMITS.free.aiNoteChars.toLocaleString("en-US")}–${MAX_INPUT_CHARS.toLocaleString("en-US")} characters depending on the plan. Whatever you wrote is what the model sees.`,
       },
       {
         what: "Your workspace's category names",

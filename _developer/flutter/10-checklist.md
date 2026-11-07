@@ -99,7 +99,8 @@ Cross-references point at the spec docs.
 - [ ] **Author labels** in shared workspaces (`transaction.user`, per-user tint;
       hidden in solo workspaces).
 - [ ] **AI entry mode** ([04](./04-tracker-chat.md) §4.11): Manual/AI toggle
-      (persisted; gradient accent; hidden for viewers), note field (≤3000) +
+      (persisted; gradient accent; hidden for viewers), note field (≤ `usage.ai.noteMaxChars`,
+      with a "120 / 1,000" counter) +
       help sheet, `POST /ai/parse` with device timezone, editable **review
       grid** (add/remove rows, start-over), save via `POST /transactions/bulk`,
       429/502/503 + 403 `plan_limit` (`aiActions`) handling.

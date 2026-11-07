@@ -113,7 +113,7 @@ action would go past one, the server answers **403** with
 | `tags` | 5 / 10 / 20 (the 2 seeded defaults count) | `POST /tags` |
 | `budgets` | 5 / 20 / "Unlimited" (Pro's safety cap is 200 → `upgradeTo: null`, show "Contact us") — since 6.8.0 | `POST /budgets` |
 | `storage` | 1 / 5 / 20 GB | **413 `storage_quota_exceeded`** (not 403) on `POST /files` and `POST /transactions/{id}/attachments` — same `details` |
-| `aiActions` | 50 / 300 / 1,000 per UTC calendar month | `POST /ai/parse`, `POST /ai/transcribe` |
+| `aiActions` | 30 / 300 / 1,000 per UTC calendar month (Free was 50 before 6.15.0) | `POST /ai/parse`, `POST /ai/transcribe` |
 | `voice` | Pro only | `POST /ai/transcribe` |
 | `profileLevelAccess` | Plus / Pro | `PUT /profiles/{id}/overrides` |
 | `freeWorkspaces` | one free workspace per person | `POST /workspaces`; writes into a view-only workspace — any endpoint that adds or edits data (below) |
@@ -1058,8 +1058,9 @@ characters (422 past that), and blank or `null` means none.
 Both require the **editor** role (403 for viewers — hide the UI) and share the
 per-person **`ai` rate limit** (429 `rate_limited` + `Retry-After`, checked
 first — §1 · Rate limits; it replaced the 30 calls/hour quota in 6.6.0). Since
-6.5.0 both also spend the workspace's **monthly AI allowance** — 50 / 300 /
-1,000 AI actions per UTC calendar month on Free / Plus / Pro (`GET /usage` →
+6.5.0 both also spend the workspace's **monthly AI allowance** — 30 / 300 /
+1,000 AI actions per UTC calendar month on Free / Plus / Pro (Free was 50
+before 6.15.0; always read the number from `GET /usage` →
 `ai`); once it's spent the call is **403 `plan_limit`**, `limit: "aiActions"`,
 until `ai.resetsAt`. A typed parse costs one action; a transcription costs one
 per started minute of the clip and also pays for parsing its transcript (send

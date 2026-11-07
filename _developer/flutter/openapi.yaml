@@ -72,8 +72,8 @@ info:
     the **editor** role in the current workspace (403 otherwise), the
     per-person **AI rate limit** shared by both endpoints (`429
     rate_limited`, checked first — see Rate limits), the workspace's monthly **AI
-    allowance** from its plan — 50 / 300 / 1,000 AI actions per UTC calendar
-    month on Free / Plus / Pro (`403 plan_limit`, `limit: "aiActions"` once
+    allowance** from its plan — 30 / 300 / 1,000 AI actions per UTC calendar
+    month on Free / Plus / Pro — Free was 50 before 6.15.0 (`403 plan_limit`, `limit: "aiActions"` once
     it's spent — see `GET /usage` → `ai`), voice entry for transcription
     (Pro only — otherwise `403 plan_limit`, `limit: "voice"`),
     `503 ai_unavailable` when the operator hasn't configured that feature's
