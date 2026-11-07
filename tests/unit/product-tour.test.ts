@@ -27,18 +27,30 @@ describe("tourStepsFor", () => {
     expect(ids(tourStepsFor({ voice: true, hasTarget: everything }))).toEqual(ids([...TOUR_STEPS]));
   });
 
-  it("walks Manual, AI, voice, spaces, SpendChat AI, the other pages, then help", () => {
-    expect(ids([...TOUR_STEPS])).toEqual(["manual", "ai", "voice", "spaces", "ask", "pages", "help"]);
+  it("walks Manual, the switch to AI, AI, voice, spaces, SpendChat AI, the other pages, help, then how to replay it", () => {
+    expect(ids([...TOUR_STEPS])).toEqual([
+      "manual",
+      "switch",
+      "ai",
+      "voice",
+      "spaces",
+      "ask",
+      "pages",
+      "help",
+      "replay",
+    ]);
   });
 
   it("drops the voice step for a plan without voice entry", () => {
     expect(ids(tourStepsFor({ voice: false, hasTarget: everything }))).toEqual([
       "manual",
+      "switch",
       "ai",
       "spaces",
       "ask",
       "pages",
       "help",
+      "replay",
     ]);
   });
 
@@ -49,6 +61,7 @@ describe("tourStepsFor", () => {
       "ask",
       "pages",
       "help",
+      "replay",
     ]);
   });
 
@@ -97,6 +110,15 @@ describe("the composer steps", () => {
     expect(step("voice")).toMatchObject({ mode: "ai", targets: ["voice"] });
   });
 
+  it("make the reader press AI themselves between the two, with no Next", () => {
+    const sw = step("switch");
+    expect(sw.targets).toEqual(["entry-mode-ai", "entry-mode"]);
+    expect(sw.action).toEqual({ label: "Switch to AI mode", prompt: "Press AI to continue" });
+    // It keeps Manual on screen — that's what there is to switch from.
+    expect(sw.mode).toBeUndefined();
+    expect(TOUR_STEPS.filter((s) => s.action).map((s) => s.id)).toEqual(["switch"]);
+  });
+
   it("leave the mode alone everywhere else", () => {
     const others = TOUR_STEPS.filter((s) => !["manual", "ai", "voice"].includes(s.id));
     expect(others.every((s) => s.mode === undefined)).toBe(true);
@@ -109,6 +131,8 @@ describe("tourModeFor", () => {
   it("shows each composer step's own mode, and keeps the last one after them", () => {
     expect(all.map((_, i) => tourModeFor(all, i))).toEqual([
       "manual",
+      "manual",
+      "ai",
       "ai",
       "ai",
       "ai",
@@ -118,13 +142,16 @@ describe("tourModeFor", () => {
     ]);
   });
 
-  it("goes back to Manual on the way back to its step", () => {
+  it("goes back to Manual on the way back to the switch, so there's still something to press", () => {
     expect(tourModeFor(all, 3)).toBe("ai");
+    expect(tourModeFor(all, 1)).toBe("manual");
     expect(tourModeFor(all, 0)).toBe("manual");
   });
 
   it("is null for a tour without the composer — the person's own mode stays", () => {
-    const viewer = tourStepsFor({ voice: true, hasTarget: (t) => t !== "composer" && t !== "voice" });
+    const composerParts = new Set<TourTarget>(["composer", "voice", "entry-mode", "entry-mode-ai"]);
+    const viewer = tourStepsFor({ voice: true, hasTarget: (t) => !composerParts.has(t) });
+    expect(ids(viewer)).toEqual(["spaces", "ask", "pages", "help", "replay"]);
     expect(viewer.map((_, i) => tourModeFor(viewer, i)).every((m) => m === null)).toBe(true);
   });
 
@@ -137,18 +164,33 @@ describe("tourModeFor", () => {
 describe("the pages step", () => {
   const pages = step("pages");
 
-  it("introduces Transactions, Analytics, Budgets and Files over the nav", () => {
+  it("introduces every other page over the nav, Invoices and Split bills included", () => {
     expect(pages.targets).toEqual(["nav"]);
-    expect(pages.pages?.map((p) => p.label)).toEqual(["Transactions", "Analytics", "Budgets", "Files"]);
+    expect(pages.pages?.map((p) => p.label)).toEqual([
+      "Transactions",
+      "Analytics",
+      "Budgets",
+      "Files",
+      "Invoices",
+      "Split bills",
+    ]);
   });
 
   it("names each page by the anchor its nav row carries", () => {
+    // Nav section ids (`nav-items.ts`) → the anchor each row carries.
+    const sectionOf: Record<string, string> = {
+      Transactions: "transactions",
+      Analytics: "analytics",
+      Budgets: "budgets",
+      Files: "files",
+      Invoices: "invoices",
+      "Split bills": "split",
+    };
     for (const page of pages.pages ?? []) {
-      expect(navTourTarget(page.label.toLowerCase())).toBe(page.target);
+      expect(navTourTarget(sectionOf[page.label]!)).toBe(page.target);
     }
     expect(navTourTarget("ask")).toBe("nav-ask");
     expect(navTourTarget("tracker")).toBeUndefined();
-    expect(navTourTarget("invoices")).toBeUndefined();
   });
 
   it("says nothing when every page has its own row", () => {
@@ -159,9 +201,9 @@ describe("the pages step", () => {
     const without = (...gone: TourTarget[]) => (t: TourTarget) => !gone.includes(t);
     expect(pagesNote(pages, without("nav-files"))).toBe("Files is under More.");
     expect(pagesNote(pages, without("nav-budgets", "nav-files"))).toBe("Budgets and Files are under More.");
-    // A phone: only Transactions has a slot on the bottom bar.
-    expect(pagesNote(pages, (t) => t === "nav-transactions")).toBe(
-      "Analytics, Budgets and Files are under More.",
+    // A phone: of these, only Transactions and Split bills have a slot on the bottom bar.
+    expect(pagesNote(pages, (t) => t === "nav-transactions" || t === "nav-split")).toBe(
+      "Analytics, Budgets, Files and Invoices are under More.",
     );
   });
 
@@ -171,9 +213,48 @@ describe("the pages step", () => {
   });
 });
 
-describe("the help step", () => {
-  it("ends the tour on the account menu", () => {
-    expect(TOUR_STEPS.at(-1)).toMatchObject({ id: "help", targets: ["account-menu"] });
+describe("the account menu's steps", () => {
+  it("ends the tour on the account menu: its button, then its “Take the tour” row with the menu open", () => {
+    expect(TOUR_STEPS.slice(-2)).toMatchObject([
+      { id: "help", targets: ["account-menu"] },
+      { id: "replay", targets: ["take-the-tour"], opens: "account-menu" },
+    ]);
+  });
+
+  it("never spotlights the menu's button for the replay row", () => {
+    expect(step("replay").targets).not.toContain("account-menu");
+  });
+
+  it("opens the menu on the last step only, and names “Take the tour” only there", () => {
+    expect(TOUR_STEPS.filter((s) => s.opens).map((s) => s.id)).toEqual(["replay"]);
+    expect(step("replay").body).toContain("“Take the tour”");
+    expect(TOUR_STEPS.filter((s) => s.body.includes("Take the tour")).map((s) => s.id)).toEqual([
+      "replay",
+    ]);
+  });
+
+  it("keeps the replay step while the menu is shut, as long as its button is there", () => {
+    // At the start the row isn't on the page: the menu opens on the step itself.
+    const shut = (t: TourTarget) => t !== "take-the-tour";
+    expect(ids(tourStepsFor({ voice: true, hasTarget: shut }))).toContain("replay");
+    const noMenu = (t: TourTarget) => t !== "take-the-tour" && t !== "account-menu";
+    expect(ids(tourStepsFor({ voice: true, hasTarget: noMenu }))).not.toContain("replay");
+  });
+});
+
+describe("the words", () => {
+  // Written for a ten-year-old (see `TOUR_STEPS`): short sentences, no long
+  // dashes or semicolons holding two ideas together.
+  const texts = TOUR_STEPS.flatMap((s) => [s.title, s.body, ...(s.pages ?? []).map((p) => p.text)]);
+
+  it("keep every sentence short", () => {
+    const sentences = texts.flatMap((t) => t.split(/(?<=[.?!]”?)\s+/));
+    const long = sentences.filter((s) => s.split(/\s+/).length > 18);
+    expect(long).toEqual([]);
+  });
+
+  it("use no long dashes or semicolons", () => {
+    expect(texts.filter((t) => /[—–;]/.test(t))).toEqual([]);
   });
 });
 

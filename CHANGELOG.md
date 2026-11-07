@@ -18,6 +18,89 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.50.0] — 2026-11-06
+
+### Added
+- **Accepting the terms is now part of signing up — in one tick.** "Create account" and
+  "Continue with Google" on the sign-up page open a short, friendly summary of the terms,
+  with links to the full Terms of Service, Privacy Policy, Cookie Policy and Billing & refund
+  policy, and one checkbox: "I'm 13 or older, and I agree to the Terms and Privacy Policy."
+  The account is created only once it's ticked. No date of birth is asked. A second,
+  optional box — unticked — reads "Email me about new features, updates and offers, and
+  occasionally ask for my feedback (optional)." On the sign-in
+  page, a Google sign-in with no SpendChat account behind it gets the same dialog before
+  anything is created — the server decides, so it works even when that Google login already
+  existed in Firebase — and declining creates nothing. Each account now records which
+  version of the terms it accepted, and when.
+- **SpendChat is for everyone 13 and older.** People under 18 use it — and can buy plans —
+  with a parent's or guardian's OK. The ages live in one place (`AGE_RULES`), with the steps
+  for India's DPDP rules on children (≈ May 2027) written beside them.
+- **A one-time "We've updated our terms" prompt** for everyone already signed in, and for
+  accounts created in the mobile app. It appears once over the app, with the same optional
+  product-news box; you can agree or sign out.
+- **Product news emails, by choice.** Whether you'd like emails about new features,
+  updates and offers, and the occasional request for feedback, is recorded only when you tick it, and
+  can be switched off any time in Settings → Account (new "Emails from SpendChat" card).
+  Nothing sends these yet; `pnpm growth:report:*` counts the yeses.
+- **Confirm your country and currency when you start.** A new account's first screen in the
+  app says hello by name and asks where you're based and what currency you track in — both
+  already filled in from your location, so it's usually one tap. It sets your workspace's
+  currency and number format (choosing India groups amounts by lakhs), shows how amounts
+  will look, and can't be skipped. The same screen lets you pick Light, Dark or System
+  for the app's look, applied and saved to your account as soon as you pick it.
+- **A new account's welcome runs in one go.** The terms, then your country and currency,
+  then "About you", then the product tour. Each one opens the moment you answer the one
+  before, with no wait for it to save and no glimpse of the tracker in between. If a save
+  fails, that popup comes back with the error.
+- **"About you" — optional welcome questions.** Straight after the currency step, a friendly
+  popup asks a few one-tap questions, one per screen: personal or business use (and team
+  size for business), what describes you, what brings you here, who you'll use it with, how
+  you track money today, how often you'll log, which features you're excited about, how you
+  heard about us (new accounts). Every question can be skipped, or all of them at once;
+  nothing typed, nothing identifying. Finishing takes you straight into the product tour.
+  Asked once of every account, new and existing. It replaces the tracker's "How did you
+  hear about us?" card; `pnpm growth:report:*` now shows the answers.
+- **"In short" notes on the legal pages.** Every section of the Terms of Service, Privacy
+  Policy and Cookie Policy now starts with a one- or two-sentence summary in plain words.
+
+### Changed
+- **The product tour has you switch to AI mode yourself.** A new step points at the Manual /
+  AI switch and waits for you to press AI. There's no Next button on it, so you learn where
+  the switch is. The "other pages" stop now covers every page, Invoices and Split bills
+  included, and says which ones are under More. The account-menu stop mentions your plan
+  and Trash. A last stop opens the menu and spotlights its "Take the tour" item, so you see
+  exactly where to find the tour again. Every step is reworded in short, everyday sentences.
+- **A new welcome email, sent once you've confirmed your currency.** It opens with
+  "Welcome, <your name>", then a tracker with a day in it — every amount in your own
+  currency and number format, at believable prices (a coffee is ₹140, not ₹4.50) — and a
+  clear "Log your first expense" button. Then the three ways to add an entry (with AI entry
+  drawn turning a sentence into drafts), and everything in the workspace — split bills,
+  budgets, invoices, SpendChat AI, receipts, bulk add, profiles, shared workspaces, export —
+  each with a link. The pictures are drawn in the email itself, not images, so they show the
+  right currency for everyone and read with images off. Still transactional and one-off:
+  plain subject, links only to our own site, a full plain-text version, and replies reach a
+  person. Previously it went out at sign-up with a guessed currency.
+- **The Terms of Service, Privacy Policy and Cookie Policy are rewritten.** They now cover
+  the AI features in detail (what each one sends, to which provider, what is kept, and that
+  nothing is used to train models), the third parties we use and where they are, legal
+  bases, retention periods, automated billing decisions, international transfers, the
+  optional "About you" answers, and the rights people have under the GDPR, India's DPDP Act,
+  US state privacy laws and the Australian Privacy Act. The Terms add statutory consumer
+  rights (including the 14-day right of withdrawal in the EU and UK and the Australian
+  Consumer Law guarantees), data processing terms for business use, AI terms, rules for
+  teens, and a way to report illegal content. Both documents now name our Grievance Officer
+  for India.
+- **A Global Privacy Control signal now counts as declining analytics cookies**: the cookie
+  banner doesn't appear and analytics stay off unless you accept from the Cookie Policy page.
+
+### Fixed
+- **"Upgrade" in a form that's at its plan limit now opens the Plans page.** In New profile,
+  New space, New workspace, a new budget, tag or category, and moving or deleting with every
+  other space full, the button used to open a second popup on top of the form. It now goes
+  to Plans and closes the form.
+- **The account menu closes when you press Upgrade.** It used to stay open over the Plans
+  page.
+
 ## [0.49.2] — 2026-11-01
 
 ### Fixed

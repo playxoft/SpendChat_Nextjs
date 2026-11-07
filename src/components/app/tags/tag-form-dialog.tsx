@@ -171,7 +171,7 @@ export function TagFormDialog({
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            <LimitPanel lock={createLock} />
+            <LimitPanel lock={createLock} onNavigate={() => onOpenChange(false)} />
             <div className="space-y-2">
               <Label htmlFor="tag-name">Name</Label>
               <Input

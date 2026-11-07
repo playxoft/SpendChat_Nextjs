@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
+  countryForCurrency,
+  countryOptions,
+  isKnownCountry,
+  localeForCountry,
   COUNTRY_TO_CURRENCY,
   currencyForCountry,
   edgeCountry,
@@ -145,5 +149,40 @@ describe("resolveSettingsDefaults", () => {
       acceptLanguage: "sl-Latn-IT-rozaj-biske-1994,en-GB;q=0.5",
     });
     expect(res.locale.length).toBeLessThanOrEqual(20);
+  });
+});
+
+describe("the onboarding country picker", () => {
+  it("offers every country with a supported currency, by name, each once", () => {
+    const list = countryOptions();
+    const codes = list.map((c) => c.code);
+    expect(new Set(codes).size).toBe(codes.length);
+    expect(list.find((c) => c.code === "IN")).toEqual({ code: "IN", name: "India", currency: "INR" });
+    expect(list.every((c) => isSupportedCurrency(c.currency))).toBe(true);
+    const names = list.map((c) => c.name);
+    expect([...names].sort((a, b) => a.localeCompare(b, "en"))).toEqual(names);
+  });
+
+  it("knows only listed, upper-case country codes", () => {
+    expect(isKnownCountry("IN")).toBe(true);
+    expect(isKnownCountry("in")).toBe(false);
+    expect(isKnownCountry("ZZ")).toBe(false);
+    expect(isKnownCountry(42)).toBe(false);
+  });
+
+  it("guesses a currency's home country when location is unknown", () => {
+    expect(countryForCurrency("USD")).toBe("US");
+    expect(countryForCurrency("EUR")).toBe("DE");
+    expect(countryForCurrency("INR")).toBe("IN");
+    expect(countryForCurrency("JPY")).toBe("JP");
+    expect(countryForCurrency("XXX")).toBeNull();
+  });
+
+  it("moves the number format to the chosen country, keeping the language", () => {
+    expect(localeForCountry("IN", "en-GB")).toBe("en-IN");
+    expect(localeForCountry("IN", "en-IN")).toBe("en-IN");
+    expect(localeForCountry("DE", "de-DE")).toBe("de-DE");
+    expect(localeForCountry("US", "en")).toBe("en-US");
+    expect(localeForCountry("IN", "not a locale!")).toBe("not a locale!");
   });
 });

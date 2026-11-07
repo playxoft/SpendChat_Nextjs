@@ -14,7 +14,6 @@ import { resolveUser } from "@/lib/identity";
 import { REFRESH_COOKIE, SESSION_COOKIE } from "@/lib/session-cookie";
 import { detectSettingsDefaults } from "./geo.server";
 import { findUserById } from "./directory";
-import { sendWelcomeEmailOnce } from "./welcome-email";
 import { bindSplitInvitesOnSignup } from "./split-signup";
 import {
   acceptPendingInvites,
@@ -107,9 +106,8 @@ export function defaultWorkspaceName(name?: string | null, email?: string | null
  * a "Main" space and a "Personal" profile.
  * On that first bootstrap, pending email invites are converted into
  * memberships/profile grants — invites only ever exist for emails that had no
- * account when they were invited (known accounts are added directly) — and the
- * one-time welcome email is queued (`sendWelcomeEmailOnce` guarantees the
- * "one-time" even if two first requests race into this branch).
+ * account when they were invited (known accounts are added directly). The
+ * welcome email isn't sent here: it follows the currency step.
  */
 export async function ensureBootstrap(userId: string) {
   const db = getDb();
@@ -152,7 +150,9 @@ export async function ensureBootstrap(userId: string) {
       // and the sign-up is tagged as invited (growth report).
       await bindSplitInvitesOnSignup(userId, identity.email);
     }
-    await sendWelcomeEmailOnce(userId, { currency: defaults.currency, locale: defaults.locale });
+    // No welcome email here: it waits for the person to confirm their
+    // currency (`confirmOnboardingCurrency`), so its examples are in the
+    // currency they'll actually use.
   }
 }
 

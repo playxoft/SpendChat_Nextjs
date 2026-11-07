@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 /**
  * "Take the tour" from the account menu, which is on every page while the tour
  * lives on the tracker. A module-level flag rather than a window event: when
@@ -44,4 +46,37 @@ export function onProductTourRequest(listener: () => void): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+/**
+ * The account menu the tour has opened, named by its button, or null. The
+ * tour's last step opens the menu to point at "Take the tour" inside it. It's
+ * named by its button rather than just "open" because the menu is drawn twice
+ * (the phone's top bar and the desktop corner) and only the one on screen
+ * should open.
+ */
+let shownMenu: Element | null = null;
+const menuListeners = new Set<() => void>();
+
+/** Open the menu behind this button for the tour, or (with null) close it again. */
+export function showAccountMenu(trigger: Element | null): void {
+  if (shownMenu === trigger) return;
+  shownMenu = trigger;
+  menuListeners.forEach((listener) => listener());
+}
+
+function subscribeMenu(listener: () => void): () => void {
+  menuListeners.add(listener);
+  return () => {
+    menuListeners.delete(listener);
+  };
+}
+
+/** Whether the tour has opened the menu behind this button. */
+export function useShownByTour(trigger: Element | null): boolean {
+  return useSyncExternalStore(
+    subscribeMenu,
+    () => trigger !== null && shownMenu === trigger,
+    () => false,
+  );
 }

@@ -175,3 +175,83 @@ export function resolveSettingsDefaults(input: {
     locale: locale ?? DEFAULT_LOCALE,
   };
 }
+
+/**
+ * Where a currency is "home", for a first guess at the country when location
+ * is unknown. Only the currencies shared by several countries need an entry —
+ * the rest have one country in `COUNTRY_TO_CURRENCY` anyway.
+ */
+const HOME_COUNTRY: Record<string, string> = {
+  USD: "US",
+  EUR: "DE",
+  GBP: "GB",
+  AUD: "AU",
+  NZD: "NZ",
+  INR: "IN",
+  CHF: "CH",
+  ZAR: "ZA",
+  DKK: "DK",
+  NOK: "NO",
+  ILS: "IL",
+  MAD: "MA",
+};
+
+export type CountryOption = { code: string; name: string; currency: string };
+
+/**
+ * Every country we can suggest a supported currency for, by name A–Z — the
+ * onboarding country picker. Names come from the runtime's `Intl`, so there's
+ * no list to keep up to date.
+ */
+export function countryOptions(displayLocale = "en"): CountryOption[] {
+  let names: Intl.DisplayNames | null = null;
+  try {
+    names = new Intl.DisplayNames([displayLocale, "en"], { type: "region" });
+  } catch {
+    names = null;
+  }
+  return Object.keys(COUNTRY_TO_CURRENCY)
+    .map((code) => {
+      const currency = currencyForCountry(code);
+      if (!currency) return null;
+      let name = code;
+      try {
+        name = names?.of(code) ?? code;
+      } catch {
+        name = code;
+      }
+      return { code, name, currency };
+    })
+    .filter((c): c is CountryOption => c !== null)
+    .sort((a, b) => a.name.localeCompare(b.name, displayLocale));
+}
+
+/** True for a country code the picker offers. */
+export function isKnownCountry(code: unknown): code is string {
+  return typeof code === "string" && currencyForCountry(code) !== null && code === code.toUpperCase();
+}
+
+/** A country that uses `currency` — its home country when it has one. */
+export function countryForCurrency(currency: string): string | null {
+  const home = HOME_COUNTRY[currency];
+  if (home) return home;
+  return Object.keys(COUNTRY_TO_CURRENCY).find((c) => currencyForCountry(c) === currency) ?? null;
+}
+
+/**
+ * The number format for someone who says they're in `country`. The current
+ * one stays if it's already that country's (`en-IN` for India); otherwise the
+ * same language takes that country — `en-GB` in India becomes `en-IN`, which
+ * groups by lakhs. `Intl` falls back to the language's own format for a pair
+ * it has no data for, so this never produces something unusable.
+ */
+export function localeForCountry(country: string, current: string): string {
+  try {
+    const locale = new Intl.Locale(current);
+    if (locale.region === country) return locale.baseName;
+    const next = new Intl.Locale(`${locale.language}-${country}`).baseName;
+    return next.length <= 20 ? next : current;
+  } catch {
+    return current;
+  }
+}

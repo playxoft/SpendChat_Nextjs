@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
+import { eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { POST, DELETE } from "@/app/api/auth/session/route";
+import { users } from "@/db/schema";
+import { LEGAL_VERSION } from "@/lib/legal";
 import { REFRESH_COOKIE, SESSION_COOKIE, SESSION_HINT_COOKIE } from "@/lib/session-cookie";
 import { setSession, signInAs } from "./helpers/session";
+import { getTestDb } from "./helpers/test-db";
 
 /**
  * The session bridge's login-CSRF guard: cross-site requests must never set or
@@ -110,6 +114,115 @@ describe("POST /api/auth/session", () => {
     const res = await POST(req({ method: "POST", body: JSON.stringify({ idToken: "token" }) }));
     expect(res.status).toBe(200);
     setSession(null);
+  });
+});
+
+describe("POST /api/auth/session — terms acceptance", () => {
+  async function signInWith(terms: unknown) {
+    const user = signInAs("terms");
+    const res = await POST(
+      req({
+        method: "POST",
+        headers: { "sec-fetch-site": "same-origin" },
+        body: JSON.stringify({ idToken: "token", terms }),
+      }),
+    );
+    const [row] = await getTestDb()
+      .select({ version: users.termsVersion, at: users.termsAcceptedAt, news: users.newsEmailsAt })
+      .from(users)
+      .where(eq(users.id, user.id));
+    setSession(null);
+    return { res, row };
+  }
+
+  it("records a yes to product news only when its box was ticked too", async () => {
+    const { row: unticked } = await signInWith({ version: LEGAL_VERSION });
+    expect(unticked?.news).toBeNull();
+    const { row: ticked } = await signInWith({ version: LEGAL_VERSION, newsEmails: true });
+    expect(ticked?.news).toBeInstanceOf(Date);
+    // A later sign-in without the tick doesn't take an earlier yes back.
+    const { row: later } = await signInWith({ version: LEGAL_VERSION, newsEmails: false });
+    expect(later?.news?.getTime()).toBe(ticked?.news?.getTime());
+  });
+
+  it("never takes a news yes without a valid terms acceptance beside it", async () => {
+    const { row } = await signInWith({ version: "2020-01-01", newsEmails: true });
+    expect(row?.news).toBeNull();
+  });
+
+  it("records the current version when the browser saw the box ticked", async () => {
+    const { res, row } = await signInWith({ version: LEGAL_VERSION });
+    expect(res.status).toBe(200);
+    expect(row?.version).toBe(LEGAL_VERSION);
+    expect(row?.at).toBeInstanceOf(Date);
+  });
+
+  it("ignores a stale version — the in-app gate asks instead", async () => {
+    const { res, row } = await signInWith({ version: "2020-01-01" });
+    expect(res.status).toBe(200);
+    expect(row?.version).toBeNull();
+    expect(row?.at).toBeNull();
+  });
+
+  it("records nothing when no acceptance is sent", async () => {
+    const { row } = await signInWith(undefined);
+    expect(row?.version).toBeNull();
+  });
+});
+
+describe("POST /api/auth/session — a new account from the sign-in page", () => {
+  async function post(body: Record<string, unknown>) {
+    return POST(
+      req({
+        method: "POST",
+        headers: { "sec-fetch-site": "same-origin" },
+        body: JSON.stringify({ idToken: "token", ...body }),
+      }),
+    );
+  }
+  const rowsFor = (id: string) =>
+    getTestDb().select({ id: users.id, version: users.termsVersion }).from(users).where(eq(users.id, id));
+
+  it("asks for the terms instead of creating an account — no row, no cookies", async () => {
+    const user = signInAs("newg");
+    const res = await post({ askTermsIfNew: true });
+    expect(res.status).toBe(428);
+    expect(await res.json()).toMatchObject({ error: "terms_required" });
+    expect(res.headers.getSetCookie()).toEqual([]);
+    expect(await rowsFor(user.id)).toEqual([]);
+  });
+
+  it("creates it once the terms come with the retry", async () => {
+    const user = signInAs("newg");
+    const res = await post({ askTermsIfNew: true, terms: { version: LEGAL_VERSION } });
+    expect(res.status).toBe(200);
+    expect(await rowsFor(user.id)).toEqual([{ id: user.id, version: LEGAL_VERSION }]);
+  });
+
+  it("lets an existing account straight in", async () => {
+    const user = signInAs("oldg");
+    await getTestDb()
+      .insert(users)
+      .values({ id: user.id, firebaseUid: `fb-${user.id}`, email: user.email, name: user.name });
+    const res = await post({ askTermsIfNew: true });
+    expect(res.status).toBe(200);
+  });
+
+  it("lets a Google login reach the email account it will be linked to", async () => {
+    const user = signInAs("linkg");
+    // Same address, a different id: what `resolveUser` links by verified email.
+    await getTestDb()
+      .insert(users)
+      .values({ firebaseUid: "fb-email-password", email: user.email.toUpperCase(), name: user.name });
+    const res = await post({ askTermsIfNew: true });
+    expect(res.status).toBe(200);
+  });
+
+  it("changes nothing for callers that don't ask (the in-app gate catches them)", async () => {
+    const user = signInAs("plain");
+    const res = await post({});
+    expect(res.status).toBe(200);
+    expect(await rowsFor(user.id)).toHaveLength(1);
   });
 });
 

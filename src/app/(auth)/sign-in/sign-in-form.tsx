@@ -67,7 +67,7 @@ export function SignInForm() {
         </p>
       </div>
 
-      <GoogleSignInButton next={next} />
+      <GoogleSignInButton next={next} terms="if-new" />
 
       <div className="relative">
         <div className="absolute inset-0 flex items-center">

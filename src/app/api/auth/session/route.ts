@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { hasVerifiedEmail, verifyFirebaseIdToken } from "@/lib/firebase-verify";
-import { resolveUser, syncUserProfile } from "@/lib/identity";
+import { accountExistsFor, resolveUser, syncUserProfile } from "@/lib/identity";
 import { attributionInputSchema, type AttributionInput } from "@/lib/attribution";
+import { LEGAL_VERSION, isCurrentLegalVersion } from "@/lib/legal";
+import { acceptTerms } from "@/services/terms";
 import { ApiError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
 import { setLogContext } from "@/lib/log-context";
@@ -39,7 +41,7 @@ function isCrossSite(request: NextRequest): boolean {
 /**
  * The session bridge between Firebase (client-side) and the server.
  *
- * POST { idToken, refreshToken, attribution? } — the browser sends a fresh Firebase ID token
+ * POST { idToken, refreshToken, attribution?, terms?: { version, newsEmails? }, askTermsIfNew? } — the browser sends a fresh Firebase ID token
  * on sign-in and on every hourly refresh (see `AuthBridge`), plus its long-lived
  * refresh token. We verify the ID token and store both in httpOnly cookies:
  * `__session` (read/verified by `getCurrentUser`) and `__refresh` (used to
@@ -74,16 +76,33 @@ export async function POST(request: NextRequest) {
     // consulted if this sign-in creates the account; anything that fails the
     // strict schema is dropped rather than stored.
     let attribution: AttributionInput | null = null;
+    // `{ version }` when this browser just watched the person tick "I'm 13 or
+    // older and I agree" on the sign-up or first-Google-sign-in dialog
+    // (`lib/legal.ts`). Only the version in force counts; anything else is
+    // ignored and the in-app gate asks instead. `newsEmails`: the optional
+    // "email me product news" box beside it was ticked too.
+    let acceptsTerms = false;
+    let newsEmails = false;
+    // Sent by a sign-in that can still show the terms dialog (the sign-in
+    // page's Google button): if this sign-in would create a new account and
+    // the terms weren't ticked, answer 428 `terms_required` and create nothing
+    // — the browser asks, then signs in again with `terms`.
+    let askTermsIfNew = false;
     try {
       const body = (await request.json()) as {
         idToken?: string;
         refreshToken?: string;
         attribution?: unknown;
+        terms?: { version?: unknown; newsEmails?: unknown } | null;
+        askTermsIfNew?: unknown;
       };
       idToken = body?.idToken;
       refreshToken = body?.refreshToken;
       const parsed = attributionInputSchema.safeParse(body?.attribution);
       if (parsed.success) attribution = parsed.data;
+      acceptsTerms = isCurrentLegalVersion(body?.terms?.version);
+      newsEmails = acceptsTerms && body?.terms?.newsEmails === true;
+      askTermsIfNew = body?.askTermsIfNew === true;
     } catch {
       // fall through to the missing-token response
     }
@@ -111,6 +130,12 @@ export async function POST(request: NextRequest) {
     // stores it.
     let userId = await syncUserProfile(claims);
     if (!userId) {
+      if (askTermsIfNew && !acceptsTerms && !(await accountExistsFor(claims))) {
+        return Response.json(
+          { error: "terms_required", message: "Accept the terms to create your account." },
+          { status: 428 },
+        );
+      }
       try {
         userId = (await resolveUser(claims, { acquisition: attribution })).id;
       } catch (err) {
@@ -128,6 +153,17 @@ export async function POST(request: NextRequest) {
       }
     }
     setLogContext({ userId });
+    if (acceptsTerms) {
+      // Never costs the session: if this write fails, the app's terms gate
+      // simply asks again on the first page.
+      try {
+        await acceptTerms(userId, LEGAL_VERSION, { newsEmails });
+      } catch (err) {
+        logger.warn(`Recording the terms acceptance at sign-in failed: ${describeError(err)}`, {
+          event: "auth.terms_record_failed",
+        });
+      }
+    }
     const res = NextResponse.json({ ok: true });
     res.cookies.set(SESSION_COOKIE, idToken, sessionCookieOptions());
     // Readable by the statically-rendered landing page, which has no other way

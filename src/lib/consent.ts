@@ -19,7 +19,18 @@ export function readConsent(): ConsentValue | null {
   // Anything else — an empty value, or a hand-edited one — reads as "not
   // decided yet", which keeps the scripts blocked and re-asks.
   const value = readCookie(COOKIE_NAME);
-  return value === "granted" || value === "denied" ? value : null;
+  if (value === "granted" || value === "denied") return value;
+  // A browser sending Global Privacy Control has already said no: treat it as
+  // a decline (no banner, no analytics) unless the visitor explicitly accepts
+  // from the Cookie Policy page, which writes the cookie above. The Privacy
+  // and Cookie policies promise this; California, Colorado and others require it.
+  return hasGlobalPrivacyControl() ? "denied" : null;
+}
+
+/** `navigator.globalPrivacyControl`, the GPC signal (https://globalprivacycontrol.org). */
+export function hasGlobalPrivacyControl(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return (navigator as Navigator & { globalPrivacyControl?: boolean }).globalPrivacyControl === true;
 }
 
 export function writeConsent(value: ConsentValue) {

@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "news_emails_at" timestamp with time zone;

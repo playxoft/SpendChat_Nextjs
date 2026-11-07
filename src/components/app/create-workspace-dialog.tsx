@@ -170,7 +170,7 @@ export function CreateWorkspaceDialog({
               </p>
             </div>
           ) : (
-            <LimitPanel lock={lock} />
+            <LimitPanel lock={lock} onNavigate={() => onOpenChange(false)} />
           )}
           <div className="space-y-1.5">
             <Label htmlFor="workspace-name">Name & icon</Label>

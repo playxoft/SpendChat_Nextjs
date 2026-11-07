@@ -120,6 +120,33 @@ export async function resolveUser(
 }
 
 /**
+ * Would signing in with these claims reach an existing SpendChat account —
+ * by its Firebase UID, or by a verified email that `resolveUser` would link —
+ * rather than create a new one? Asked by the session route before it creates
+ * an account for a sign-in that hasn't accepted the terms yet. Firebase's own
+ * "new user" flag can't answer this: a Google login can already exist in
+ * Firebase with no SpendChat account behind it (one deleted here whose login
+ * stayed, or an unfinished email sign-up it was linked to).
+ */
+export async function accountExistsFor(claims: FirebaseTokenClaims): Promise<boolean> {
+  const db = getDb();
+  const [byUid] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.firebaseUid, claims.sub))
+    .limit(1);
+  if (byUid) return true;
+  const email = normalizeEmail(claims.email);
+  if (!email || claims.email_verified !== true) return false;
+  const [byEmail] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(sql`lower(${users.email}) = ${email}`)
+    .limit(1);
+  return Boolean(byEmail);
+}
+
+/**
  * Refresh the mutable profile fields from a fresh token (called on sign-in and
  * on every hourly session refresh). Returns our internal user id for the
  * account, or null when no row exists yet (a brand-new user's row is created

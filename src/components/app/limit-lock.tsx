@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -11,7 +13,9 @@ import {
   type AddLockKind,
   type AddLockOptions,
 } from "@/lib/add-limits";
+import { upgradePageHref } from "@/lib/plan-copy";
 import { cn } from "@/lib/utils";
+import { hrefWithProfile } from "./nav-items";
 import { usePlan } from "./upgrade-dialog";
 
 /**
@@ -165,20 +169,30 @@ export function LockBadge() {
 }
 
 /**
- * The panel at the top of a create form when the limit is reached: what's
- * reached, the plan that lifts it, and an Upgrade button.
+ * The notice at the top of a form whose create is locked: what the limit is,
+ * why, and a button to lift it. That button goes straight to the Plans page
+ * (`upgradePageHref`) rather than opening the upgrade dialog over the form —
+ * one popup on another reads as a dead end. A form in a dialog passes
+ * `onNavigate` to close itself on the way, since a dialog kept by the layout
+ * (the sidebar's, the account menu's) would otherwise stay open over the page.
+ * A billing hold has no plan to go to, so its button still opens the dialog
+ * that explains it.
  */
 export function LimitPanel({
   lock,
   hint,
   className,
+  onNavigate,
 }: {
   lock: AddLock | null;
   /** An extra line — what can still be done ("Pick another space"). */
   hint?: string;
   className?: string;
+  /** Called as the button leaves for the Plans page — close the dialog this sits in. */
+  onNavigate?: () => void;
 }) {
   const { showUpgrade } = usePlan();
+  const profile = useSearchParams().get("profile");
   if (!lock) return null;
   return (
     <div
@@ -191,15 +205,23 @@ export function LimitPanel({
         <p className="text-xs text-muted-foreground">{lock.reason}</p>
         {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
       </div>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        className="shrink-0"
-        onClick={() => showUpgrade(lock.info)}
-      >
-        {lock.cta}
-      </Button>
+      {lock.info.limit === "billingHold" ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          onClick={() => showUpgrade(lock.info)}
+        >
+          {lock.cta}
+        </Button>
+      ) : (
+        <Button asChild size="sm" variant="outline" className="shrink-0">
+          <Link href={hrefWithProfile(upgradePageHref(lock.info), profile)} onClick={onNavigate}>
+            {lock.cta}
+          </Link>
+        </Button>
+      )}
     </div>
   );
 }

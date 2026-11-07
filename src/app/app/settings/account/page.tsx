@@ -12,6 +12,7 @@ import { AccountProfileForm } from "@/components/app/account-profile-form";
 import { AccountSecurityCard } from "@/components/app/account-security-card";
 import { AccountSignOut } from "@/components/app/account-sign-out";
 import { DangerZone } from "@/components/app/danger-zone";
+import { NewsEmailsSetting } from "@/components/app/news-emails-setting";
 import { WorkspaceCurrencyForm } from "@/components/app/workspace-currency-form";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +60,18 @@ export default async function AccountSettingsPage() {
             locale={workspace.locale}
             canEdit={isAdmin}
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Emails from SpendChat</CardTitle>
+          <CardDescription>
+            Emails about your account, invitations and alerts you set up always arrive.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <NewsEmailsSetting initialOn={account?.newsEmails === true} />
         </CardContent>
       </Card>
 

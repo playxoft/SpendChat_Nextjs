@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as settingsService from "@/services/settings";
+import * as termsService from "@/services/terms";
 
 function revalidateAll() {
   revalidatePath("/app/settings");
@@ -22,6 +23,63 @@ export async function patchSettings(input: Record<string, unknown>): Promise<Act
       revalidateAll();
       return {};
     },
+    { userId: user.id, rateLimit: "read" },
+  );
+}
+
+/**
+ * Record that the signed-in person agreed to the current Terms + Privacy
+ * Policy — the in-app gate's confirm button (`components/app/terms-gate.tsx`).
+ * `version` is the one the dialog showed; a stale one is refused.
+ */
+export async function acceptTerms(
+  version: string,
+  choices: { newsEmails?: boolean } = {},
+): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "acceptTerms",
+    async () => {
+      await termsService.acceptTerms(user.id, version, { newsEmails: choices?.newsEmails === true });
+      revalidatePath("/app", "layout");
+      return {};
+    },
+    // A one-off write about the person's own account, like a UI pref.
+    { userId: user.id, rateLimit: "read" },
+  );
+}
+
+/**
+ * The new account's currency step: country + currency become their own
+ * workspace's, and the welcome email goes out in that currency.
+ */
+export async function confirmCurrency(input: {
+  country: string;
+  currency: string;
+}): Promise<ActionResult<{ currency: string; locale: string }>> {
+  const user = await requireUser();
+  return runAction(
+    "confirmCurrency",
+    async () => {
+      const res = await settingsService.confirmOnboardingCurrency(user.id, input);
+      revalidatePath("/app", "layout");
+      return res;
+    },
+    { userId: user.id },
+  );
+}
+
+/** Product news by email, on or off — Settings → Account. */
+export async function updateNewsEmails(on: boolean): Promise<ActionResult<{ on: boolean }>> {
+  const user = await requireUser();
+  return runAction(
+    "updateNewsEmails",
+    async () => {
+      const res = await termsService.setNewsEmails(user.id, on);
+      revalidatePath("/app/settings/account");
+      return res;
+    },
+    // The person's own preference, like a UI pref.
     { userId: user.id, rateLimit: "read" },
   );
 }
@@ -151,6 +209,23 @@ export async function recordHeardFrom(choice: string, other?: string): Promise<A
       revalidatePath("/app");
       return {};
     },
+    { userId: user.id, rateLimit: "read" },
+  );
+}
+
+/**
+ * Save the optional "About you" answers — or that they were skipped — so the
+ * welcome questions never come back (`services/settings.ts`).
+ */
+export async function saveAboutYou(input: unknown): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "saveAboutYou",
+    async () => {
+      await settingsService.saveAboutYou(user.id, input);
+      return {};
+    },
+    // The person's own one-off answers, like a UI pref.
     { userId: user.id, rateLimit: "read" },
   );
 }

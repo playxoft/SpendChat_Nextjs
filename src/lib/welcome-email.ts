@@ -10,13 +10,11 @@ import { siteConfig } from "@/lib/site";
 /**
  * Send the welcome email to an account exactly once.
  *
- * Called from `ensureBootstrap` on the branch that creates the user's default
- * workspace — the moment an account first becomes usable. That branch is only
- * *usually* reached once: a first page load fans out into several parallel
- * server requests (the layout, the page, the session bridge) and two of them
- * can both observe "no workspace yet". The workspace inserts tolerate that with
- * `onConflictDoNothing`; an email can't be un-sent. So the send is gated on a
- * single conditional `UPDATE … WHERE welcomed_at IS NULL RETURNING`: under
+ * Called when a new account confirms its country and currency — the one
+ * onboarding step that can't be skipped (`confirmOnboardingCurrency`), so the
+ * examples in the email are in the currency the person chose, not a guess.
+ * Two tabs can both confirm, and an email can't be un-sent. So the send is
+ * gated on a single conditional `UPDATE … WHERE welcomed_at IS NULL RETURNING`: under
  * READ COMMITTED the second writer blocks on the row lock, re-evaluates the
  * predicate against the committed value, matches nothing, and gets no row back.
  * Exactly one caller sends.
@@ -28,8 +26,8 @@ import { siteConfig } from "@/lib/site";
  * per-user email quota: the quota exists for sends to arbitrary addresses a
  * user typed; this goes to the account's own verified address, once.
  *
- * `money` is the new default workspace's currency/locale, so the example
- * amounts in the email are in the currency the person is about to use.
+ * `money` is the currency/locale they just confirmed, so the example amounts
+ * in the email are in the currency the person is about to use.
  *
  * Returns whether this call was the one that sent.
  */

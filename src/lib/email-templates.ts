@@ -2,6 +2,7 @@ import type { WorkspaceRole } from "@/db/schema";
 import { percentUsed, type BudgetThreshold } from "@/lib/budgets";
 import { escapeHtml } from "@/lib/email";
 import { featureLink } from "@/lib/features";
+import { getCurrency } from "@/lib/currencies";
 import { formatMoney } from "@/lib/money";
 import { siteConfig } from "@/lib/site";
 
@@ -18,10 +19,13 @@ import { siteConfig } from "@/lib/site";
  * generous whitespace. The layout is a 600px table with inline styles because
  * that is still the only thing every mail client renders the same way; the
  * `<style>` block only handles narrow screens. The one image is the mark
- * beside the wordmark (`public/email/logo.png`, from `scripts/email-logo.html`);
- * everything else that looks like the app — the chat bubbles, the composer
- * strip, the key caps, the workspace tile — is tables and borders, so it
- * renders with images blocked and can't break.
+ * beside the wordmark (`public/email/logo.png`, alt text, fixed size).
+ * Everything that looks like the app — the tracker with its chat bubbles, the
+ * AI drafts, the composer strip, the key caps, the workspace tile — is tables
+ * and borders, never a picture: it shows the reader's own currency and number
+ * format (no image could, for every currency), it reads complete with images
+ * blocked, and the email is never image-heavy (which is what spam filters
+ * look for).
  *
  * Every string a user controls (names, workspace titles) passes through
  * `escapeHtml` on the way into the HTML body. The plain-text body is built in
@@ -126,39 +130,60 @@ function link(label: string, href: string): string {
   return `<a href="${escapeHtml(href)}" style="color:${COLOR_TEXT};text-decoration:underline;">${escapeHtml(label)}</a>`;
 }
 
-function button(label: string, href: string): Block {
+function button(label: string, href: string, opts: { large?: boolean } = {}): Block {
+  const pad = opts.large ? "15px 28px" : "11px 22px";
+  const size = opts.large ? 16 : 15;
   return {
     html:
-      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px;">` +
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 ${opts.large ? 12 : 24}px;">` +
       // The 1px border matches the fill in light mode and is what keeps the
       // button a visible shape when a client (Gmail on Android, Outlook, a
       // dark-mode extension) recolours the card behind it.
       `<tr><td style="border-radius:8px;background:${COLOR_ACCENT};border:1px solid ${COLOR_ACCENT};">` +
-      `<a href="${escapeHtml(href)}" style="display:inline-block;padding:11px 22px;font-size:15px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:8px;">${escapeHtml(label)}</a>` +
+      `<a href="${escapeHtml(href)}" style="display:inline-block;padding:${pad};font-size:${size}px;font-weight:600;line-height:1;color:#ffffff;text-decoration:none;border-radius:8px;">${escapeHtml(label)}</a>` +
       `</td></tr></table>`,
     text: `\n${label}: ${href}\n`,
   };
 }
 
-type Item = { title: string; body: string; href?: string };
+type Feature = {
+  icon: string;
+  title: string;
+  body: string;
+  href: string;
+  cta: string;
+  /** Shown under the line, inside the row — a small picture of it in use. */
+  extra?: Block;
+};
 
-/** A list of short titled items — the "three ways" / "tips" pattern. */
-function items(list: Item[]): Block {
+/**
+ * The feature list: one per row, an emoji tile, a title, one line, and a link
+ * that says where it goes. One column on every screen — nothing to stack.
+ */
+function featureList(list: Feature[]): Block {
   const html =
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 8px;">` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 20px;">` +
     list
-      .map((it) => {
-        const title = it.href ? link(it.title, it.href) : escapeHtml(it.title);
-        return (
-          `<tr><td style="padding:0 0 14px;font-size:15px;line-height:1.55;color:${COLOR_BODY};">` +
-          `<span style="font-weight:600;color:${COLOR_TEXT};">${title}</span>` +
-          `<br>${inline(it.body).html}</td></tr>`
-        );
-      })
+      .map(
+        (f) =>
+          `<tr>` +
+          `<td style="width:40px;padding:0 14px 18px 0;vertical-align:top;">` +
+          `<span style="display:inline-block;width:40px;height:40px;line-height:40px;text-align:center;border-radius:10px;background:${COLOR_SURFACE};border:1px solid ${COLOR_BORDER};font-size:19px;">${escapeHtml(f.icon)}</span></td>` +
+          `<td style="padding:0 0 18px;vertical-align:top;font-size:15px;line-height:1.55;color:${COLOR_BODY};">` +
+          `<span style="display:block;font-weight:600;color:${COLOR_TEXT};">${escapeHtml(f.title)}</span>` +
+          `${inline(f.body).html}<br>` +
+          `<a href="${escapeHtml(f.href)}" style="font-size:14px;color:${COLOR_TEXT};text-decoration:underline;">${escapeHtml(f.cta)}</a>` +
+          (f.extra?.html ?? "") +
+          `</td></tr>`,
+      )
       .join("") +
     `</table>`;
   const text = list
-    .map((it) => `- ${it.title}: ${inline(it.body).text}${it.href ? `\n  ${it.href}` : ""}`)
+    .map(
+      (f) =>
+        `- ${f.title}: ${inline(f.body).text}\n  ${f.cta}: ${f.href}` +
+        (f.extra?.text ? `\n${f.extra.text}` : ""),
+    )
     .join("\n");
   return { html, text };
 }
@@ -225,8 +250,8 @@ function dayPill(label: string): string {
 }
 
 /** The composer: amount field, title field with its real placeholder, send. */
-function composerStrip(money: MoneyFormat): string {
-  const amount = formatMoney(450, money.currency, money.locale);
+function composerStrip(money: MoneyFormat, amountMinor = 450): string {
+  const amount = formatMoney(amountMinor, money.currency, money.locale);
   return (
     `<tr><td style="padding:6px 14px 14px;">` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${COLOR_CARD};border:1px solid ${COLOR_BORDER};border-radius:10px;">` +
@@ -247,18 +272,153 @@ function composerStrip(money: MoneyFormat): string {
 function feedVignette(
   bubbles: Bubble[],
   money: MoneyFormat,
-  opts: { day?: string; composer?: boolean } = {},
+  opts: {
+    day?: string;
+    /** The composer, with this amount typed in. */
+    composer?: boolean;
+    composerMinor?: number;
+    /** The tracker's top bar: the profile, the period and its balance. */
+    header?: { title: string; period: string; balanceMinor: number };
+  } = {},
 ): Block {
   const rows = bubbles.map((b) => bubbleRow(b, money));
+  const balance = opts.header
+    ? formatMoney(opts.header.balanceMinor, money.currency, money.locale)
+    : "";
+  const header = opts.header
+    ? `<tr><td style="padding:14px 16px 10px;border-bottom:1px solid ${COLOR_BORDER};">` +
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>` +
+      `<td style="font-size:14px;font-weight:600;color:${COLOR_TEXT};">${escapeHtml(opts.header.title)} ` +
+      `<span style="font-weight:400;color:${COLOR_MUTED};">· ${escapeHtml(opts.header.period)}</span></td>` +
+      `<td style="text-align:right;white-space:nowrap;">` +
+      `<span style="display:block;font-size:11px;color:${COLOR_MUTED};">Balance</span>` +
+      `<span style="font-size:15px;font-weight:600;color:${COLOR_TEXT};">${escapeHtml(balance)}</span></td>` +
+      `</tr></table></td></tr>`
+    : "";
   const html =
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 24px;background:${COLOR_SURFACE};border:1px solid ${COLOR_BORDER};border-radius:12px;">` +
+    header +
     (opts.day ? dayPill(opts.day) : `<tr><td style="padding:6px;"></td></tr>`) +
     rows.map((r) => r.html).join("") +
-    (opts.composer ? composerStrip(money) : `<tr><td style="padding:6px;"></td></tr>`) +
+    (opts.composer
+      ? composerStrip(money, opts.composerMinor)
+      : `<tr><td style="padding:6px;"></td></tr>`) +
     `</table>`;
-  const text = [opts.day ? `  — ${opts.day} —` : null, ...rows.map((r) => r.text)]
+  const text = [
+    opts.header ? `  ${opts.header.title} · ${opts.header.period} · balance ${balance}` : null,
+    opts.day ? `  — ${opts.day} —` : null,
+    ...rows.map((r) => r.text),
+  ]
     .filter(Boolean)
     .join("\n");
+  return { html, text };
+}
+
+/* ------------------------------------------------------------------------- */
+/* Example amounts                                                            */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Roughly how many of a currency an everyday price takes, next to US dollars —
+ * so a coffee in the welcome email is ₹140, not ₹4.50. Price levels, not
+ * exchange rates, and only for illustration: nothing is ever converted.
+ * Unlisted currencies use 1.
+ */
+const SAMPLE_SCALE: Record<string, number> = {
+  CAD: 1.3, AUD: 1.5, NZD: 1.6, SGD: 1.3, HKD: 8, CNY: 5, TWD: 30, JPY: 150, KRW: 1300,
+  INR: 30, PKR: 150, BDT: 60, LKR: 150, NPR: 70, THB: 30, VND: 20000, IDR: 12000,
+  MYR: 4, PHP: 50, AED: 3.5, SAR: 3.5, QAR: 3.5, KWD: 0.3, BHD: 0.4, OMR: 0.4,
+  JOD: 0.7, ILS: 3.5, TRY: 30, RUB: 80, UAH: 35, EGP: 30, NGN: 1000, KES: 120,
+  GHS: 12, MAD: 9, TZS: 2500, UGX: 3500, ETB: 50, ZAR: 15, BRL: 5, MXN: 17,
+  ARS: 1000, CLP: 900, COP: 4000, PEN: 3.5, UYU: 40, SEK: 10, NOK: 10, DKK: 7,
+  ISK: 140, PLN: 4, CZK: 22, HUF: 350, RON: 4.5, BGN: 1.8,
+};
+
+/** A believable price: two significant digits from 100, whole from 10, halves below. */
+function nicePrice(value: number): number {
+  if (value >= 100) {
+    const magnitude = 10 ** (Math.floor(Math.log10(value)) - 1);
+    return Math.round(value / magnitude) * magnitude;
+  }
+  if (value >= 10) return Math.round(value);
+  return Math.max(0.5, Math.round(value * 2) / 2);
+}
+
+/**
+ * An example amount, given in US-dollar terms, as a believable one in the
+ * reader's currency — `major` for what someone would type, `minor` for the
+ * bubbles (`formatMoney`).
+ */
+function sampleAmount(usd: number, currency: string): { major: number; minor: number; typed: string } {
+  const major = nicePrice(usd * (SAMPLE_SCALE[currency] ?? 1));
+  let decimals = 2;
+  try {
+    decimals = getCurrency(currency).decimals;
+  } catch {
+    decimals = 2;
+  }
+  return {
+    major,
+    minor: Math.round(major * 10 ** decimals),
+    // What a person types: no grouping, and cents only when there are some.
+    typed: Number.isInteger(major) ? String(major) : major.toFixed(2),
+  };
+}
+
+/**
+ * "Write it in a sentence", drawn: the sentence as typed, then the drafts the
+ * AI makes of it, waiting to be checked and saved. Stacked, so it fits a
+ * phone without a breakpoint.
+ */
+function aiDraftsMock(money: MoneyFormat): Block {
+  const lunch = sampleAmount(12, money.currency);
+  const ride = sampleAmount(8, money.currency);
+  const gig = sampleAmount(300, money.currency);
+  const sentence = `lunch ${lunch.typed}, uber ${ride.typed} and got ${gig.typed} from freelancing`;
+  const drafts = [
+    { icon: "🍽️", title: "Lunch", category: "Food & Dining", minor: lunch.minor, income: false },
+    { icon: "🚕", title: "Uber", category: "Transport", minor: ride.minor, income: false },
+    { icon: "💼", title: "Freelancing", category: "Income", minor: gig.minor, income: true },
+  ].map((d) => ({
+    ...d,
+    amount: d.income
+      ? formatMoney(d.minor, money.currency, money.locale, { signed: true })
+      : formatMoney(d.minor, money.currency, money.locale),
+  }));
+  const label = (text: string) =>
+    `<div style="margin:0 0 6px;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:${COLOR_MUTED};">${escapeHtml(text)}</div>`;
+  const html =
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:12px 0 4px;background:${COLOR_SURFACE};border:1px solid ${COLOR_BORDER};border-radius:12px;">` +
+    `<tr><td style="padding:14px;">` +
+    label("You write") +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${COLOR_CARD};border:1px solid ${COLOR_BORDER};border-radius:10px;"><tr>` +
+    `<td style="padding:10px 12px;font-size:14px;line-height:1.5;color:${COLOR_TEXT};">${escapeHtml(sentence)}</td>` +
+    `<td style="padding:8px 10px 8px 0;width:44px;text-align:right;vertical-align:bottom;">` +
+    `<span style="display:inline-block;padding:3px 8px;border:1px solid ${COLOR_BORDER};border-radius:7px;font-size:11px;font-weight:600;color:${COLOR_TEXT};white-space:nowrap;">✨ AI</span></td>` +
+    `</tr></table>` +
+    `<div style="padding:6px 0;text-align:center;font-size:16px;line-height:1;color:${COLOR_MUTED};">&darr;</div>` +
+    label("You check, then save") +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${COLOR_CARD};border:1px solid ${COLOR_BORDER};border-radius:10px;">` +
+    drafts
+      .map(
+        (d, i) =>
+          `<tr>` +
+          `<td style="padding:9px 0 9px 12px;width:30px;${i ? `border-top:1px solid ${COLOR_BORDER};` : ""}">` +
+          `<span style="display:inline-block;width:28px;height:28px;line-height:28px;text-align:center;border-radius:999px;background:${COLOR_PAGE};font-size:13px;">${escapeHtml(d.icon)}</span></td>` +
+          `<td style="padding:9px 10px;${i ? `border-top:1px solid ${COLOR_BORDER};` : ""}">` +
+          `<span style="display:block;font-size:14px;font-weight:500;color:${COLOR_TEXT};">${escapeHtml(d.title)}</span>` +
+          `<span style="display:block;font-size:11px;color:${COLOR_MUTED};">${escapeHtml(d.category)}</span></td>` +
+          `<td style="padding:9px 12px 9px 0;text-align:right;white-space:nowrap;font-size:14px;font-weight:600;color:${d.income ? COLOR_INCOME : COLOR_TEXT};${i ? `border-top:1px solid ${COLOR_BORDER};` : ""}">${escapeHtml(d.amount)}</td>` +
+          `</tr>`,
+      )
+      .join("") +
+    `<tr><td colspan="3" style="padding:4px 12px 12px;text-align:right;">` +
+    `<span style="display:inline-block;padding:6px 12px;border-radius:7px;background:${COLOR_ACCENT};color:#ffffff;font-size:12px;font-weight:600;">Save ${drafts.length}</span>` +
+    `</td></tr></table>` +
+    `</td></tr></table>`;
+  const text =
+    `  You write: “${sentence}”\n  You check, then save:\n` +
+    drafts.map((d) => `  → ${d.title} · ${d.category} · ${d.amount}`).join("\n");
   return { html, text };
 }
 
@@ -395,18 +555,34 @@ export function firstName(name: string | null | undefined): string | null {
   return first && first.length <= 40 ? first : null;
 }
 
+/** "Indian rupee (INR)" — the workspace currency as words, for the welcome note. */
+function currencyName(money: MoneyFormat): string {
+  try {
+    const name = new Intl.DisplayNames([money.locale, "en"], { type: "currency" }).of(money.currency);
+    return name && name !== money.currency ? `${name} (${money.currency})` : money.currency;
+  } catch {
+    return money.currency;
+  }
+}
+
 /**
- * The one email a new account receives, on its first bootstrap. Its job is to
- * get the first transaction logged — everything else is secondary — so the
- * call to action sits above the fold, right under a glimpse of what the
- * tracker looks like with two entries in it, and the feature tour is short.
- * The "worth knowing" section is the marketing; it's kept to facts the person
- * would want before trusting the app with their numbers. The footer says
- * plainly that this is a one-off, which is both the honest description and the
- * reason it doesn't read as spam.
+ * The one email a new account receives, sent when it confirms its country and
+ * currency (`confirmOnboardingCurrency`) — a transactional "your account is
+ * ready", not marketing. Its job is to get the first entry logged, so it opens
+ * with the greeting and a picture of a tracker with a day in it, then the call
+ * to action; then the three ways to add an entry (the AI one drawn), then the
+ * rest of the workspace, one line each with a link that says where it goes.
  *
- * `money` is the new workspace's currency/locale (geo-detected at bootstrap),
- * so the example amounts are in the currency they're about to use.
+ * Written to read like a person, not a campaign: a plain subject with their
+ * name, no urgency, no ALL CAPS, every link on our own domain (or GitHub), no
+ * pictures beyond the logo — the tracker and the drafts are drawn in HTML, in
+ * the reader's own currency and number format — a full plain-text twin, a
+ * reply address a person reads, and a footer that says why it arrived and
+ * that it's a one-off.
+ *
+ * `money` is the currency/locale the person just confirmed; the example
+ * amounts are scaled to it (`sampleAmount`), so a coffee costs what a coffee
+ * costs there.
  */
 export function welcomeEmail(input: {
   name: string | null;
@@ -415,102 +591,177 @@ export function welcomeEmail(input: {
   const money = input.money ?? DEFAULT_MONEY;
   const first = firstName(input.name);
   const subject = first ? `Welcome to ${siteConfig.name}, ${first}` : `Welcome to ${siteConfig.name}`;
-  const greeting = first ? `Hi ${escapeHtml(first)},` : "Hi,";
-  const greetingText = first ? `Hi ${first},` : "Hi,";
   const app = siteUrl("/app");
+  const currencySettings = siteUrl("/app/settings/account");
+  const currency = currencyName(money);
+  const at = (usd: number) => sampleAmount(usd, money.currency).minor;
+  const coffee = at(4.5);
+  const groceries = at(62);
+  const movie = at(18);
+  const salary = at(2400);
 
   const blocks: Block[] = [
-    richParagraph(
-      `${greeting} thanks for signing up. ${escapeHtml(siteConfig.name)} is a money tracker that works like a chat: type what you spent, send, done. Your workspace is ready and waiting — here's what it looks like with a couple of entries in it.`,
-      `${greetingText} thanks for signing up. ${siteConfig.name} is a money tracker that works like a chat: type what you spent, send, done. Your workspace is ready and waiting — here's what it looks like with a couple of entries in it.`,
-    ),
     feedVignette(
       [
         {
           type: "expense",
-          amountMinor: 450,
+          amountMinor: coffee,
           title: "Coffee",
           category: { name: "Food & Dining", icon: "🍽️" },
           time: "9:12",
         },
         {
+          type: "expense",
+          amountMinor: groceries,
+          title: "Groceries",
+          category: { name: "Groceries", icon: "🛒" },
+          time: "13:40",
+        },
+        {
           type: "income",
-          amountMinor: 240000,
+          amountMinor: salary,
           title: "Salary",
           category: { name: "Salary", icon: "💼" },
           time: "18:02",
         },
+        {
+          type: "expense",
+          amountMinor: movie,
+          title: "Movie night",
+          category: { name: "Entertainment", icon: "🎬" },
+          time: "21:30",
+        },
       ],
       money,
-      { day: "Today", composer: true },
+      {
+        header: {
+          title: "Personal",
+          period: "this month",
+          balanceMinor: salary - coffee - groceries - movie,
+        },
+        day: "Today",
+        composer: true,
+        composerMinor: at(12),
+      },
     ),
-    button("Log your first expense", app),
+    paragraph(
+      `Thanks for joining! ${siteConfig.name} is a money tracker that works like a chat: type what you spent, hit send, and it's in. Your workspace is set up and ready.`,
+    ),
+    button("Log your first expense", app, { large: true }),
+    paragraph("It takes about five seconds. No bank login, no card details.", { muted: true }),
 
-    heading("Three ways to add a transaction"),
-    items([
+    heading("Three ways to add an entry"),
+    featureList([
       {
+        icon: "⌨️",
         title: "Type it",
-        body: "Amount, a short title, a category if you like, send. It lands in your feed and the balance updates.",
+        body: "An amount, a short title, a category if you like — send. It lands in your feed and the balance updates.",
         href: siteUrl(featureLink("chat-expense-tracker")),
+        cta: "See how it works",
       },
       {
+        icon: "✨",
         title: "Write it in a sentence",
-        body: "Switch the composer to AI and write “coffee 4.50 and 62 on groceries”. You get tidy drafts to check before anything is saved.",
+        body: "Switch the composer to AI and write it the way you'd say it. You get tidy drafts to check — nothing is saved until you do.",
         href: siteUrl(featureLink("ai-expense-tracker")),
+        cta: "How AI entry works",
+        extra: aiDraftsMock(money),
       },
       {
+        icon: "🎙️",
         title: "Say it",
-        body: "Hold `M` and speak, in whichever languages you actually mix. It's transcribed into a draft you approve.",
+        body: "Hold `M` and speak, in whichever languages you mix. It becomes a draft you approve.",
         href: siteUrl(featureLink("voice-expense-tracker")),
+        cta: "About voice entry",
       },
     ]),
 
-    heading("Five things people wish they knew on day one"),
-    items([
+    heading("Everything in your workspace"),
+    featureList([
       {
-        title: "Press / for the cheat sheet",
-        body: "Every screen and action has a key. `Q` `T` `E` `S` jump between views; `R` starts an entry.",
-        href: siteUrl(featureLink("keyboard-shortcuts")),
+        icon: "🤝",
+        title: "Split bills",
+        body: "Share costs with friends or flatmates and see who owes whom.",
+        href: siteUrl(featureLink("split")),
+        cta: "About split bills",
       },
       {
+        icon: "🎯",
+        title: "Budgets and alerts",
+        body: "Set a monthly limit and get a heads-up before you go over.",
+        href: siteUrl(featureLink("budgets")),
+        cta: "About budgets",
+      },
+      {
+        icon: "🧾",
+        title: "Invoices and quotes",
+        body: "Make a clean PDF invoice, and record it as income when it's paid.",
+        href: siteUrl("/app/invoices"),
+        cta: "Open invoices",
+      },
+      {
+        icon: "💡",
+        title: "SpendChat AI",
+        body: "Ask “how much did I spend on food this month?” and get a straight answer.",
+        href: siteUrl("/app/ask"),
+        cta: "Ask a question",
+      },
+      {
+        icon: "📎",
+        title: "Receipts and files",
+        body: "Attach a receipt to any entry, and keep your documents in one place.",
+        href: siteUrl(featureLink("receipts-and-files")),
+        cta: "About files",
+      },
+      {
+        icon: "📋",
         title: "Paste a whole month at once",
         body: "Bulk add takes rows straight from a spreadsheet and shows a preview before it saves.",
         href: siteUrl(featureLink("bulk-add")),
+        cta: "About bulk add",
       },
       {
+        icon: "🗂️",
         title: "Keep separate books",
-        body: "Profiles give Personal, Home and Business their own feed and balance. `Shift` + a number switches.",
+        body: "Profiles give Personal, Home and Business their own feed and balance.",
         href: siteUrl(featureLink("multiple-profiles")),
+        cta: "About profiles",
       },
       {
+        icon: "👥",
         title: "Track together",
-        body: "Invite a partner, a flatmate or your accountant from Settings → Workspace and pick what each can see or change.",
+        body: "Invite a partner, flatmates or your team, and choose what each person can see.",
         href: siteUrl(featureLink("workspaces")),
+        cta: "About workspaces",
       },
       {
-        title: "Your data leaves when you want",
-        body: "Any filtered view exports to CSV or prints to a clean PDF. No paid tier gates it.",
+        icon: "📤",
+        title: "Export anytime",
+        body: "Any view to CSV or a clean PDF — your data leaves whenever you want.",
         href: siteUrl(featureLink("export-and-print")),
+        cta: "About export",
       },
     ]),
+    button("Open SpendChat", app),
 
     heading("Worth knowing"),
     richParagraph(
-      `${escapeHtml(siteConfig.name)} is free and ${link("open source", siteConfig.links.github)} under ${escapeHtml(siteConfig.license)}. It never asks for a bank login, shows no ads, and doesn't sell data. If you like it, a star on GitHub or a word to a friend genuinely helps a small project.`,
-      `${siteConfig.name} is free and open source under ${siteConfig.license} (${siteConfig.links.github}). It never asks for a bank login, shows no ads, and doesn't sell data. If you like it, a star on GitHub or a word to a friend genuinely helps a small project.`,
+      `${escapeHtml(siteConfig.name)} is free to start and ${link("open source", siteConfig.links.github)}. It never asks for your bank login, shows no ads, and never sells your data or uses it to train AI. Your amounts are in ${escapeHtml(currency)}, as you chose — you can change that in ${link("Settings → Account", currencySettings)}.`,
+      `${siteConfig.name} is free to start and open source (${siteConfig.links.github}). It never asks for your bank login, shows no ads, and never sells your data or uses it to train AI. Your amounts are in ${currency}, as you chose — you can change that in Settings → Account: ${currencySettings}`,
     ),
     richParagraph(
-      `Stuck, or have an idea? Reply to this email — a person reads every one. The ${link("docs", siteUrl("/docs"))} and ${link("blog", siteUrl("/blog"))} cover the rest.`,
-      `Stuck, or have an idea? Reply to this email — a person reads every one. Docs: ${siteUrl("/docs")} · Blog: ${siteUrl("/blog")}`,
+      `Questions or ideas? Just reply to this email — a real person reads every one. The ${link("help docs", siteUrl("/docs"))} cover the rest.`,
+      `Questions or ideas? Just reply to this email — a real person reads every one. Help docs: ${siteUrl("/docs")}`,
     ),
+    paragraph("Tip: press `/` anywhere in the app to see every keyboard shortcut.", { muted: true }),
   ];
 
   return render({
     subject,
-    preheader: "Your first expense takes about five seconds. Here's how, plus a few tips.",
-    title: `Welcome to ${siteConfig.name}`,
+    preheader: "Your workspace is ready — your first expense takes about five seconds.",
+    title: first ? `Welcome, ${first}` : `Welcome to ${siteConfig.name}`,
     blocks,
-    footer: `You're receiving this one-time note because a ${siteConfig.name} account was just created with this address. It isn't a newsletter — the only other mail we send is when someone invites you to a workspace, or when something in your account needs your attention.`,
+    footer: `You're getting this one-time email because a ${siteConfig.name} account was just created with this address. Apart from it, we email you only about your account, invitations people send you and alerts you set up — plus product news, if you said yes to it (Settings → Account).`,
   });
 }
 

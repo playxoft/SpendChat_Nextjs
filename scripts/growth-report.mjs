@@ -24,6 +24,17 @@
  * invite was waiting for the account's email); "Converted from a free tool" is
  * recorded by the server when a new account imports what it made on a tool
  * (a split calculator group). Days are UTC.
+ *
+ * "About you" is the optional welcome questionnaire (`src/lib/about-you.ts`),
+ * asked once of every account — new and existing — so its tables count
+ * answers *given* in the window (`users.about->>'at'`), not signups. Values are
+ * the stored codes; the labels people saw are in `ABOUT_OPTIONS`.
+ *
+ * "Product news" counts accounts that said yes to news emails (the optional box
+ * on the terms dialog, or Settings → Account; `users.news_emails_at`), new in
+ * the window and in total. The addresses are listed only on request, and only
+ * for sending through a tool that honours unsubscribes:
+ *   select email from users where news_emails_at is not null;
  */
 import pg from "pg";
 
@@ -195,6 +206,69 @@ try {
   );
   console.log(`\n"Other" answers (window)\n`);
   table(others);
+
+  const aboutWindow = `u.about is not null
+        and (u.about->>'at')::timestamptz >= now() - make_interval(days => $1)`;
+  const { rows: aboutStatus } = await client.query(
+    `select u.about->>'status' as status, count(*)::int as people
+       from users u
+      where ${aboutWindow}
+      group by 1
+      order by 2 desc, 1`,
+    [DAYS],
+  );
+  console.log(`\n"About you" — answered or skipped (window)\n`);
+  table(aboutStatus);
+
+  // Single-choice questions: one row per answer.
+  for (const [key, title] of [
+    ["useFor", "Personal or business"],
+    ["teamSize", "Team size (business)"],
+    ["describes", "Which best describes you"],
+    ["useWith", "Who they'll use it with"],
+    ["trackingNow", "How they track money now"],
+    ["frequency", "How often they'll log"],
+  ]) {
+    const { rows } = await client.query(
+      `select u.about->>'${key}' as answer, count(*)::int as people
+         from users u
+        where ${aboutWindow}
+          and u.about ? '${key}'
+        group by 1
+        order by 2 desc, 1`,
+      [DAYS],
+    );
+    console.log(`\n"About you": ${title} (window)\n`);
+    table(rows);
+  }
+
+  // Multi-choice questions: each pick counts once.
+  for (const [key, title] of [
+    ["goals", "What brings them here"],
+    ["features", "Features they're excited about"],
+  ]) {
+    const { rows } = await client.query(
+      `select pick as answer, count(*)::int as people
+         from users u, jsonb_array_elements_text(u.about->'${key}') as pick
+        where ${aboutWindow}
+          and jsonb_typeof(u.about->'${key}') = 'array'
+        group by 1
+        order by 2 desc, 1`,
+      [DAYS],
+    );
+    console.log(`\n"About you": ${title} (window, each pick counted)\n`);
+    table(rows);
+  }
+
+  const { rows: news } = await client.query(
+    `select count(*) filter (where news_emails_at >= now() - make_interval(days => $1))::int as "yes (window)",
+            count(*) filter (where news_emails_at is not null)::int as "yes (all time)",
+            count(*)::int as accounts
+       from users`,
+    [DAYS],
+  );
+  console.log(`\nProduct news emails — said yes\n`);
+  table(news);
 
   const { rows: landing } = await client.query(
     `select coalesce(u.acquisition->>'landing', '(unknown)') as landing_page, count(*)::int as signups

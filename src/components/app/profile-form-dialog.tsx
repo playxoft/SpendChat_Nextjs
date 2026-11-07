@@ -115,6 +115,7 @@ export function ProfileFormDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <LimitPanel
             lock={lock}
+            onNavigate={() => onOpenChange(false)}
             hint={otherHasRoom ? "You can put it in another space instead." : undefined}
           />
           <div className="space-y-1.5">

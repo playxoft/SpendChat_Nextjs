@@ -778,10 +778,22 @@ export type ComposerPrefs = z.infer<typeof composerPrefsSchema>;
  * only: every row written before the key existed reads false, and only a fresh
  * account's bootstrap writes `true`. Finishing or skipping writes it back to
  * false; replaying from the account menu writes nothing.
+ *
+ * `aboutDone`: the optional "About you" questions (`lib/about-you.ts`) were
+ * answered or skipped, so they're never asked again. False by default, so
+ * every account — new or existing — is asked once.
+ *
+ * `currencyPending`: a new account still has to confirm its country and
+ * currency (`components/app/currency-step-dialog.tsx`) — the one onboarding
+ * step that can't be skipped, and the moment the welcome email goes out.
+ * Defaults to **false** like `tourPending`, so only accounts created after it
+ * existed are asked.
  */
 export const onboardingPrefsSchema = z.object({
   inviteNudgeDismissed: z.boolean().catch(false),
   tourPending: z.boolean().catch(false),
+  aboutDone: z.boolean().catch(false),
+  currencyPending: z.boolean().catch(false),
 });
 export type OnboardingPrefs = z.infer<typeof onboardingPrefsSchema>;
 
@@ -840,7 +852,12 @@ export const sidebarNavInputSchema = z.object({
 function uiPrefsDefault() {
   return {
     composer: { density: "normal" as const },
-    onboarding: { inviteNudgeDismissed: false, tourPending: false },
+    onboarding: {
+      inviteNudgeDismissed: false,
+      tourPending: false,
+      aboutDone: false,
+      currencyPending: false,
+    },
     sidebar: { collapsedSpaces: [] as string[], nav: defaultSidebarNav() },
   };
 }
@@ -848,7 +865,12 @@ function uiPrefsDefault() {
 export const uiPrefsSchema = z
   .object({
     composer: composerPrefsSchema.catch({ density: "normal" }),
-    onboarding: onboardingPrefsSchema.catch({ inviteNudgeDismissed: false, tourPending: false }),
+    onboarding: onboardingPrefsSchema.catch({
+      inviteNudgeDismissed: false,
+      tourPending: false,
+      aboutDone: false,
+      currencyPending: false,
+    }),
     sidebar: sidebarPrefsSchema.catch(() => ({ collapsedSpaces: [], nav: defaultSidebarNav() })),
   })
   .catch(() => uiPrefsDefault());
@@ -865,8 +887,14 @@ export type UiPrefs = z.infer<typeof uiPrefsSchema>;
 export const NEW_USER_INPUT_MODE: InputMode = "combined";
 export const NEW_USER_UI_PREFS = {
   composer: { density: "compact" },
-  // Owed the product tour on their first visit to the tracker (`product-tour.tsx`).
-  onboarding: { inviteNudgeDismissed: false, tourPending: true },
+  // Owed the currency step, then the product tour on their first visit to the
+  // tracker (`currency-step-dialog.tsx`, `product-tour.tsx`).
+  onboarding: {
+    inviteNudgeDismissed: false,
+    tourPending: true,
+    aboutDone: false,
+    currencyPending: true,
+  },
 } satisfies Partial<UiPrefs>;
 
 /** Read-side guard for `user_settings.ui_prefs` — see `uiPrefsSchema`. */

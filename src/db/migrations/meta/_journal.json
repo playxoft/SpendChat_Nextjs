@@ -365,6 +365,27 @@
       "when": 1792062865498,
       "tag": "0051_invoice_edited_at",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1793799931609,
+      "tag": "0052_terms_acceptance",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1793886830500,
+      "tag": "0053_about_you",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1793939336124,
+      "tag": "0054_news_emails",
+      "breakpoints": true
     }
   ]
 }
