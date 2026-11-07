@@ -897,6 +897,16 @@ export const NEW_USER_UI_PREFS = {
   },
 } satisfies Partial<UiPrefs>;
 
+/**
+ * The same, for an account first bootstrapped by the mobile app
+ * (`ensureBootstrap(…, { fromApi: true })`): the app has no currency step, so
+ * none is owed — its welcome email goes out at bootstrap instead.
+ */
+export const NEW_API_USER_UI_PREFS = {
+  ...NEW_USER_UI_PREFS,
+  onboarding: { ...NEW_USER_UI_PREFS.onboarding, currencyPending: false },
+} satisfies Partial<UiPrefs>;
+
 /** Read-side guard for `user_settings.ui_prefs` — see `uiPrefsSchema`. */
 export function normalizeUiPrefs(value: unknown): UiPrefs {
   return uiPrefsSchema.parse(value);

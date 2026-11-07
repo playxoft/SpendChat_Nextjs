@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { LogOut } from "lucide-react";
 import { signOut } from "firebase/auth";
@@ -25,6 +26,10 @@ import {
  * signing out. (The server never relies on it: it's the person's chance to
  * agree, not an access check.)
  *
+ * Someone who doesn't agree must still be able to leave properly, so the gate
+ * links to — and stays out of the way on — the two pages for that: deleting
+ * the account (Settings → Account) and cancelling a plan (Settings → Billing).
+ *
  * `updated` picks the wording: an account that accepted an older version, or
  * predates this one, has seen terms before; a new one hasn't.
  *
@@ -32,8 +37,13 @@ import {
  * straight over to the next one and saves in the background. A failed save
  * brings the gate back, with its error, in front of whatever came next.
  */
+/** Where someone who won't agree can still delete their account or end a plan. */
+const WAYS_OUT = ["/app/settings/account", "/app/settings/billing"];
+
 export function TermsGate({ updated }: { updated: boolean }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const onWayOut = WAYS_OUT.includes(pathname);
   const { turn, answer, reopen } = useOnboardingFlow();
   const [, startSave] = useTransition();
   const [signingOut, startSignOut] = useTransition();
@@ -67,12 +77,23 @@ export function TermsGate({ updated }: { updated: boolean }) {
 
   return (
     <TermsConsentDialog
-      open={turn === "terms"}
+      open={turn === "terms" && !onWayOut}
       title={updated ? "We've updated our terms" : "Before you start"}
       description={
-        updated
-          ? `Our terms changed on ${LEGAL_UPDATED} — they're simpler to read now, and SpendChat is open to everyone ${AGE_RULES.minAge} and older. Have a quick read, then tick the box to keep going.`
-          : "Here's the short, friendly version of our terms. Have a quick read, then tick the box to start."
+        <>
+          {updated
+            ? `Our terms changed on ${LEGAL_UPDATED} — they're simpler to read now, and SpendChat is open to everyone ${AGE_RULES.minAge} and older. Have a quick read, then tick the box to keep going.`
+            : "Here's the short, friendly version of our terms. Have a quick read, then tick the box to start."}{" "}
+          Don&apos;t agree? You can{" "}
+          <Link href="/app/settings/account" className="underline underline-offset-4">
+            delete your account
+          </Link>{" "}
+          or{" "}
+          <Link href="/app/settings/billing" className="underline underline-offset-4">
+            cancel your plan
+          </Link>
+          .
+        </>
       }
       confirmLabel="Continue"
       pending={signingOut}

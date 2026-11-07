@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   return handle(async () => {
     const user = await requireApiUser(request);
     // Guarantee a default workspace on the first ever call, like getApiContext().
-    await ensureBootstrap(user.id);
+    await ensureBootstrap(user.id, { fromApi: true });
     const list = await listUserWorkspaces(user.id);
     return apiOk(list.map(serializeWorkspace));
   });

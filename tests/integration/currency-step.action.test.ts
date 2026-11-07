@@ -8,7 +8,8 @@ import { siteConfig } from "@/lib/site";
 import * as ws from "@/services/workspaces";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
-import { bootstrapUser, workspaceIdOf } from "./helpers/seed";
+import { ensureBootstrap } from "@/lib/auth";
+import { bootstrapUser, registerUser, workspaceIdOf } from "./helpers/seed";
 
 const db = () => getTestDb();
 const sent = () => vi.mocked(sendEmail).mock.calls.map((c) => c[0]);
@@ -38,6 +39,16 @@ describe("confirmCurrency (the new account's currency step)", () => {
     expect(before.pending).toBe(true);
     expect(before.welcomedAt).toBeNull();
     expect(sent()).toHaveLength(0);
+  });
+
+  it("isn't owed by an account the mobile app made, which gets its welcome email at once", async () => {
+    await registerUser("c9");
+    await ensureBootstrap(uid("c9"), { fromApi: true });
+    await ensureBootstrap(uid("c9"), { fromApi: true });
+    const state = await stateOf("c9");
+    expect(state.pending).toBe(false);
+    expect(state.welcomedAt).toBeInstanceOf(Date);
+    expect(sent()).toHaveLength(1);
   });
 
   it("sets the workspace's currency and number format, clears the step, and sends the welcome email in that currency", async () => {

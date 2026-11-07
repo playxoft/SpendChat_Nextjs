@@ -37,7 +37,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   for India's DPDP rules on children (≈ May 2027) written beside them.
 - **A one-time "We've updated our terms" prompt** for everyone already signed in, and for
   accounts created in the mobile app. It appears once over the app, with the same optional
-  product-news box; you can agree or sign out.
+  product-news box; you can agree or sign out. If you don't agree, it links to deleting
+  your account and cancelling your plan, and stays out of the way on those two pages.
 - **Product news emails, by choice.** Whether you'd like emails about new features,
   updates and offers, and the occasional request for feedback, is recorded only when you tick it, and
   can be switched off any time in Settings → Account (new "Emails from SpendChat" card).
@@ -70,7 +71,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   included, and says which ones are under More. The account-menu stop mentions your plan
   and Trash. A last stop opens the menu and spotlights its "Take the tour" item, so you see
   exactly where to find the tour again. Every step is reworded in short, everyday sentences.
-- **A new welcome email, sent once you've confirmed your currency.** It opens with
+- **A new welcome email, sent once you've confirmed your currency** (or straight away for
+  an account made in the mobile app, which has no currency step). It opens with
   "Welcome, <your name>", then a tracker with a day in it — every amount in your own
   currency and number format, at believable prices (a coffee is ₹140, not ₹4.50) — and a
   clear "Log your first expense" button. Then the three ways to add an entry (with AI entry

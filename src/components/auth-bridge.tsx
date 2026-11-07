@@ -29,9 +29,16 @@ export function AuthBridge() {
               refreshToken: user.refreshToken,
               // Used only if this sign-in creates the account (lib/attribution.ts).
               attribution: readStoredAttribution(),
+              // The bridge only keeps existing accounts signed in; it never
+              // creates one. It runs on the sign-in page too, where it would
+              // otherwise race the Google button and make the account before
+              // the person has agreed to the terms. A new account gets a 428
+              // here and is created by the sign-in flow's own `syncSession`.
+              askTermsIfNew: true,
             }),
           });
           // Sent once; forget it so the hourly refresh doesn't carry it again.
+          // (A 428 keeps it for the sign-in flow's own request.)
           if (res.ok) clearStoredAttribution();
         } else {
           await fetch("/api/auth/session", { method: "DELETE" });
