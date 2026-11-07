@@ -16,6 +16,7 @@ import { comboFor } from "@/lib/shortcuts";
 export type TourTarget =
   | "composer"
   | "entry-mode"
+  | "entry-mode-ai"
   | "voice"
   | "spaces"
   | "nav"
@@ -24,7 +25,11 @@ export type TourTarget =
   | "nav-analytics"
   | "nav-budgets"
   | "nav-files"
-  | "account-menu";
+  | "nav-invoices"
+  | "nav-split"
+  | "account-menu"
+  /** The account menu's "Take the tour" row, there only while the menu is open (see `TourStep.opens`). */
+  | "take-the-tour";
 
 /** The composer's two modes (`EntryMode` in `entry-mode-toggle.tsx`). */
 export type TourMode = "manual" | "ai";
@@ -70,24 +75,51 @@ export type TourStep = {
   mode?: TourMode;
   /** Pages introduced together, one line each, under the body. */
   pages?: readonly TourPage[];
+  /**
+   * The reader moves on by doing it: the step has no Next, and pressing the
+   * spotlit element is what continues the tour. `label` is that press's
+   * accessible name; `prompt` is what the card says in place of Next.
+   */
+  action?: { label: string; prompt: string };
+  /**
+   * The step opens the menu behind this button and points at something inside
+   * it. The menu is shut when the tour starts, so the step counts as there when
+   * the button is (`tourStepsFor`). It closes again when the step is left.
+   */
+  opens?: "account-menu";
 };
 
+/*
+ * The words are written for someone of ten: short sentences, everyday words,
+ * one idea at a time. A new step's text should read the same way.
+ */
 export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "manual",
-    title: "Add a transaction",
+    title: "Add money you spent or earned",
     // Layout-neutral: a replay can come from any input layout (amount first,
     // title first, or one field).
-    body: "Type how much and what it was for, then send it — it lands in the feed above. The buttons set expense or income, the date, a category and tags (or type / and # as you write).",
+    body: "Type how much it was and what it was for. Then press send. It shows up in the list above. The small buttons let you pick spent or earned, the date, a category and tags.",
     targets: ["composer"],
     sides: ["top", "bottom"],
     hint: { text: "Send with", combo: "enter" },
     mode: "manual",
   },
   {
+    // The reader flips the switch themselves, so they know where it is the
+    // next time. The composer stays in Manual (step one's mode) until they do.
+    id: "switch",
+    title: "Try AI mode",
+    // Compact composers show AI as a sparkle with no word, so the body names both.
+    body: "Press AI (the sparkle) to switch to it. You can switch back anytime.",
+    targets: ["entry-mode-ai", "entry-mode"],
+    sides: ["top", "bottom"],
+    action: { label: "Switch to AI mode", prompt: "Press AI to continue" },
+  },
+  {
     id: "ai",
-    title: "Or just describe it",
-    body: "In AI mode, write it the way you'd say it — “200 fruits, 1000 electricity”. AI turns it into rows you check and fix before anything is saved.",
+    title: "Just type it like you talk",
+    body: "Write it the way you would say it, like “200 fruits, 1000 electricity”. AI makes a list from it. You check the list and fix it before anything is saved.",
     targets: ["composer"],
     sides: ["top", "bottom"],
     hint: { text: "Switch modes with", combo: comboFor("tracker.toggle-mode") },
@@ -95,8 +127,8 @@ export const TOUR_STEPS: readonly TourStep[] = [
   },
   {
     id: "voice",
-    title: "Say it instead",
-    body: "Press and hold the mic and speak. The words land in the note for you to check before they become rows.",
+    title: "Or just say it",
+    body: "Press and hold the mic, then talk. Your words show up in the box. Check them before you save.",
     targets: ["voice"],
     sides: ["top", "bottom", "left"],
     hint: { text: "Hold", combo: comboFor("tracker.voice") },
@@ -107,7 +139,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "spaces",
     title: "Spaces and profiles",
-    body: "Keep money apart — personal, home, a side business. Pick a profile to track it, or choose several to see them together.",
+    body: "Keep different money apart, like your own, your family's or your shop's. Pick one profile to add to it. Pick a few to see them together.",
     targets: ["spaces"],
     sides: ["right", "bottom"],
     align: "start",
@@ -115,41 +147,62 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "ask",
     title: "Ask SpendChat AI",
-    body: "Ask about your money in plain words — “What did I spend on food this month?” — and get an answer from your own numbers.",
+    body: "Ask a question about your money, like “How much did I spend on food this month?” It answers using your own numbers.",
     targets: ["nav-ask"],
     sides: ["right", "top"],
     hint: { text: "Open it with", combo: comboFor("nav.ask") },
   },
   {
-    // One card for four pages rather than four cards: each page is a sentence,
-    // and a stop per page would double the tour for things the reader can't
-    // try from here anyway. The spotlight is the whole list, so it shows where
-    // they all are; a page folded under More is said to be there.
+    // One card for every other page rather than a card each: each page is a
+    // sentence, and a stop per page would double the tour for things the
+    // reader can't try from here anyway. The spotlight is the whole list, so it
+    // shows where they all are; a page folded under More is said to be there.
     id: "pages",
-    title: "Your other pages",
-    body: "Each has its own page:",
+    title: "More pages",
+    body: "Each of these has its own page:",
     targets: ["nav"],
     sides: ["right", "top"],
     pages: [
       {
         target: "nav-transactions",
         label: "Transactions",
-        text: "every entry in a table you can search, filter and export",
+        text: "all your entries in one list. Search them, filter them or download them.",
       },
-      { target: "nav-analytics", label: "Analytics", text: "charts of where your money goes and how it changes" },
-      { target: "nav-budgets", label: "Budgets", text: "monthly limits, with alerts as you near them" },
-      { target: "nav-files", label: "Files", text: "receipts, bills and other documents, in folders" },
+      { target: "nav-analytics", label: "Analytics", text: "charts that show where your money goes." },
+      {
+        target: "nav-budgets",
+        label: "Budgets",
+        text: "set a spending limit for each month. We warn you when you get close.",
+      },
+      { target: "nav-files", label: "Files", text: "keep receipts, bills and other papers in folders." },
+      {
+        target: "nav-invoices",
+        label: "Invoices",
+        text: "make bills and price quotes to send. Mark one as paid and it's added as money earned.",
+      },
+      { target: "nav-split", label: "Split bills", text: "share costs with friends and see who owes who." },
     ],
   },
   {
     // Settings has no row in the nav — it's in this menu (`nav-items.ts`) — so
-    // it's introduced here rather than as a second stop on the same button.
+    // it's introduced here, on the menu's button: where the menu is.
     id: "help",
-    title: "Your account menu",
-    body: "Switch between your workspaces here, and find Settings: members, input layout, voice, categories and tags. Pick “Take the tour” in this menu to see this again.",
+    title: "Your menu",
+    body: "Press this button to open your menu. In it you can switch workspaces, see your plan, and find Settings and Trash.",
     targets: ["account-menu"],
     sides: ["bottom", "left"],
-    hint: { text: "See every shortcut with", combo: comboFor("global.shortcuts") },
+    hint: { text: "See all shortcuts with", combo: comboFor("global.shortcuts") },
+  },
+  {
+    // Last, so it's the thing remembered: the tour can be had again, and from
+    // where. The menu is opened and its own row spotlit, so it's seen exactly
+    // where it will be — not the button, which the step before already showed.
+    id: "replay",
+    title: "Watch this tour again",
+    body: "It's right here in your menu. Press “Take the tour” anytime to see it again.",
+    targets: ["take-the-tour"],
+    sides: ["left", "bottom"],
+    opens: "account-menu",
   },
 ];
 
@@ -160,6 +213,8 @@ const NAV_TARGETS: Partial<Record<string, TourTarget>> = {
   analytics: "nav-analytics",
   budgets: "nav-budgets",
   files: "nav-files",
+  invoices: "nav-invoices",
+  split: "nav-split",
 };
 
 /** The `data-tour` value for a nav section's row — the sidebar's and the bottom bar's alike. */
@@ -175,7 +230,8 @@ export function navTourTarget(sectionId: string): TourTarget | undefined {
  * "Step n of N" counts only what's left.
  *
  * `hasTarget` judges an element in the composer's hidden pane as there: the
- * step that needs it switches the composer to that pane first.
+ * step that needs it switches the composer to that pane first. A step inside a
+ * menu is there when the menu's button is: the step opens it (`TourStep.opens`).
  */
 export function tourStepsFor({
   voice,
@@ -185,7 +241,9 @@ export function tourStepsFor({
   hasTarget: (target: TourTarget) => boolean;
 }): TourStep[] {
   return TOUR_STEPS.filter(
-    (step) => (step.requires !== "voice" || voice) && step.targets.some(hasTarget),
+    (step) =>
+      (step.requires !== "voice" || voice) &&
+      (step.opens ? hasTarget(step.opens) : step.targets.some(hasTarget)),
   );
 }
 

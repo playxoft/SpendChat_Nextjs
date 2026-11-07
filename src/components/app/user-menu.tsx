@@ -21,9 +21,10 @@ import { count } from "@/lib/plan-copy";
 import { formatPlanStorage } from "@/lib/plan-limit";
 import { PLAN_LIMITS, PLAN_NAMES, type PersonalPlan } from "@/lib/plans";
 import { comboFor } from "@/lib/shortcuts";
+import { cn } from "@/lib/utils";
 import { hrefWithProfile } from "./nav-items";
 import { PlanBadge } from "./plan-badge";
-import { requestProductTour } from "./product-tour-store";
+import { requestProductTour, useShownByTour } from "./product-tour-store";
 import { usePlan } from "./upgrade-dialog";
 import type { AccountSummary } from "./account-controls";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
@@ -47,6 +48,21 @@ function planLine(plan: PersonalPlan): string {
 export function UserMenu({ account }: { account: AccountSummary }) {
   const { email, name, image, workspaces, currentWorkspaceId } = account;
   const [createOpen, setCreateOpen] = useState(false);
+  // Controlled so the Upgrade button — a plain link, not a menu item — can
+  // close the menu as it goes (menu items close it themselves).
+  const [menuOpen, setMenuOpen] = useState(false);
+  // The product tour's last step opens this menu to point at "Take the tour"
+  // (`showAccountMenu`). It names the menu by its button, so the button is kept
+  // as state.
+  const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null);
+  const shownByTour = useShownByTour(trigger);
+  // Opened by the tour, until it has fully closed. Meanwhile the menu is only
+  // a picture: non-modal (a modal menu would block the tour's own buttons and
+  // hide it from screen readers), under the tour's dimming, and inert. It stays
+  // that way through its closing animation, because switching a Radix menu
+  // between modal and non-modal while it's on screen remounts it.
+  const [tourHeld, setTourHeld] = useState(false);
+  if (shownByTour && !tourHeld) setTourHeld(true);
   const router = useRouter();
   const pathname = usePathname();
   const profile = useSearchParams().get("profile");
@@ -73,14 +89,15 @@ export function UserMenu({ account }: { account: AccountSummary }) {
 
   return (
     <>
-    <DropdownMenu>
+    <DropdownMenu open={menuOpen || shownByTour} onOpenChange={setMenuOpen} modal={!tourHeld}>
       <DropdownMenuTrigger asChild>
         <Button
+          ref={setTrigger}
           variant="ghost"
           size="icon"
           className="rounded-full"
           aria-label="Account menu"
-          // The product tour's last step: help (and the tour itself) lives here.
+          // The product tour points here (help lives here), then opens the menu.
           data-tour="account-menu"
         >
           <Avatar className="size-8">
@@ -89,7 +106,19 @@ export function UserMenu({ account }: { account: AccountSummary }) {
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-72 p-1.5">
+      <DropdownMenuContent
+        align="end"
+        // z-40: under the tour (z-50), whose dimming then covers the menu but
+        // for the spotlit row.
+        className={cn("min-w-72 p-1.5", tourHeld && "z-40")}
+        inert={tourHeld}
+        onCloseAutoFocus={(event) => {
+          if (!tourHeld) return;
+          // Focus stays in the tour (or goes where the tour sends it), not to this button.
+          event.preventDefault();
+          setTourHeld(false);
+        }}
+      >
         <DropdownMenuLabel className="flex items-center gap-3 px-2 py-2 font-normal">
           <Avatar className="size-9">
             {image ? <AvatarImage src={image} alt="" /> : null}
@@ -119,7 +148,7 @@ export function UserMenu({ account }: { account: AccountSummary }) {
           {/* Free and Plus have somewhere to go; Pro just shows its name. */}
           {plan !== "pro" ? (
             <Button asChild size="sm" className="w-full">
-              <Link href={hrefWithProfile("/app/upgrade", profile)}>
+              <Link href={hrefWithProfile("/app/upgrade", profile)} onClick={() => setMenuOpen(false)}>
                 {plan === "free" ? "Upgrade" : `Upgrade to ${PLAN_NAMES.pro}`}
               </Link>
             </Button>
@@ -139,7 +168,7 @@ export function UserMenu({ account }: { account: AccountSummary }) {
             <Trash2 className="size-4" /> Trash
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem className="cursor-pointer px-2 py-2" onSelect={takeTour}>
+        <DropdownMenuItem className="cursor-pointer px-2 py-2" onSelect={takeTour} data-tour="take-the-tour">
           <Compass className="size-4" /> Take the tour
         </DropdownMenuItem>
         <DropdownMenuSeparator />

@@ -180,16 +180,19 @@ describe("every server action is rate limited", () => {
         "loadSplitInvitations",
         "listTrashPage",
         "loadRestoredTransactions",
-        // the person's own UI preferences
+        // the person's own UI preferences (and their own one-off terms acceptance)
+        "acceptTerms",
         "dismissInviteNudge",
         "finishProductTour",
         "patchSettings",
         "recordHeardFrom",
+        "saveAboutYou",
         "setCollapsedSpaces",
         "setSidebarNav",
         "switchWorkspace",
         "updateComposerDensity",
         "updateInputMode",
+        "updateNewsEmails",
         "updateVoiceLanguages",
       ].sort(),
     );

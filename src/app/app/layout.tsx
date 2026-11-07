@@ -2,7 +2,13 @@ import { Suspense } from "react";
 import { getAppContext, getUserWorkspaces } from "@/lib/auth";
 import { canWriteInWorkspace } from "@/lib/workspaces";
 import { getAddLimits } from "@/lib/entitlements";
-import { getAccountProfile, getCategories, getProfiles, getTags } from "@/lib/queries";
+import {
+  getAccountProfile,
+  getCategories,
+  getOwnWorkspaceMoney,
+  getProfiles,
+  getTags,
+} from "@/lib/queries";
 import { normalizeUiPrefs } from "@/lib/validation";
 import { listSpaces } from "@/services/spaces";
 import { countInvitations } from "@/services/split";
@@ -10,7 +16,9 @@ import { monthKey, todayISO } from "@/lib/dates";
 import { getBudgetAlertCount } from "@/services/budgets";
 import { describeError, logger } from "@/lib/logger";
 import { getTimeZone } from "@/lib/timezone.server";
-import { requestCountry } from "@/lib/geo.server";
+import { detectCountry, requestCountry } from "@/lib/geo.server";
+import { countryForCurrency, currencyForCountry } from "@/lib/geo";
+import { firstName } from "@/lib/email-templates";
 import { workspacePriceCurrency } from "@/lib/plan-copy";
 import { AppSidebar } from "@/components/app/app-sidebar";
 import { AppTopbar } from "@/components/app/app-topbar";
@@ -23,6 +31,10 @@ import { PermissionsProvider } from "@/components/app/permissions";
 import { PlanProvider } from "@/components/app/upgrade-dialog";
 import { AttachmentViewerProvider } from "@/components/app/attachments/attachment-viewer";
 import { TimezoneSync } from "@/components/app/timezone-sync";
+import { TermsGate } from "@/components/app/terms-gate";
+import { CurrencyStepDialog } from "@/components/app/currency-step-dialog";
+import { OnboardingFlowProvider } from "@/components/app/onboarding-flow";
+import { LEGAL_VERSION, isCurrentLegalVersion } from "@/lib/legal";
 
 // Auth + DB access — always rendered dynamically per request.
 export const dynamic = "force-dynamic";
@@ -71,12 +83,33 @@ export default async function AppLayout({
     ]);
   // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
   const canManage = workspace.role === "admin";
-  const sidebarPrefs = normalizeUiPrefs(settings.uiPrefs).sidebar;
+  const uiPrefs = normalizeUiPrefs(settings.uiPrefs);
+  const sidebarPrefs = uiPrefs.sidebar;
   const collapsedSpaces = sidebarPrefs.collapsedSpaces;
   // Labelled above the Spaces heading in the sidebar and the phone sheet.
   const sidebarWorkspace = { name: workspace.name, icon: workspace.icon };
+  // The terms gate: anyone who hasn't accepted the bundle in force. "Updated"
+  // wording for an account that accepted an older one, or predates this one.
+  const needsTerms = Boolean(account) && !isCurrentLegalVersion(account?.termsVersion);
+  const termsUpdated =
+    Boolean(account?.termsVersion) ||
+    (account ? account.createdAt.getTime() < Date.parse(`${LEGAL_VERSION}T00:00:00Z`) : false);
+  // A new account's currency step — after the terms, before anything else
+  // (the tracker's About you and tour wait for it). Mounted, and its data read,
+  // whenever it's owed, even behind the terms: answering those hands straight
+  // over to it, with no trip to the server in between (`OnboardingFlowProvider`).
+  const needsCurrency = uiPrefs.onboarding.currencyPending;
+  const [ownMoney, detectedCountry] = needsCurrency
+    ? await Promise.all([getOwnWorkspaceMoney(user.id), detectCountry()])
+    : [null, null];
+  const startMoney = ownMoney ?? { currency: workspace.currency, locale: workspace.locale };
 
   return (
+    // The welcome's popups, one straight after the other: the terms and the
+    // currency step below, then the tracker's About you and tour.
+    <OnboardingFlowProvider
+      owed={{ terms: needsTerms, currency: needsCurrency, about: !uiPrefs.onboarding.aboutDone }}
+    >
     <LoadingOverlayProvider>
     <PermissionsProvider canWrite={canWrite} canManage={canManage}>
     <PlanProvider
@@ -125,6 +158,21 @@ export default async function AppLayout({
       </div>
       {/* `g` from anywhere opens the workspace picker; 1…9 jump straight to one. */}
       <WorkspaceSwitchDialog workspaces={workspaces} currentWorkspaceId={workspace.id} />
+      {needsTerms && <TermsGate updated={termsUpdated} />}
+      {needsCurrency && (
+        <CurrencyStepDialog
+          firstName={firstName(account?.name ?? user.name ?? null)}
+          // The detected country when its currency is the one the workspace
+          // was given; otherwise a country that uses that currency.
+          initialCountry={
+            detectedCountry && currencyForCountry(detectedCountry) === startMoney.currency
+              ? detectedCountry
+              : countryForCurrency(startMoney.currency)
+          }
+          initialCurrency={startMoney.currency}
+          currentLocale={startMoney.locale}
+        />
+      )}
       {/* Reports the browser's timezone so server-rendered times match the viewer's region. */}
       <TimezoneSync current={timeZone} />
       {/* App-wide keyboard shortcuts (nav, add, bulk add, focus search). */}
@@ -145,5 +193,6 @@ export default async function AppLayout({
     </PlanProvider>
     </PermissionsProvider>
     </LoadingOverlayProvider>
+    </OnboardingFlowProvider>
   );
 }

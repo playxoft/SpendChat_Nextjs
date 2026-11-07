@@ -136,7 +136,7 @@ export function CategoryEditorDialog({
           ))}
         </div>
 
-        <LimitPanel lock={addLock} />
+        <LimitPanel lock={addLock} onNavigate={() => onOpenChange(false)} />
 
         <form onSubmit={handleAdd} className="flex items-center gap-2">
           <EmojiPicker

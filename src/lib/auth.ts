@@ -22,7 +22,12 @@ import {
   listUserWorkspaces,
   type WorkspaceSummary,
 } from "./workspaces";
-import { NEW_USER_INPUT_MODE, NEW_USER_UI_PREFS, WORKSPACE_NAME_MAX } from "./validation";
+import {
+  NEW_API_USER_UI_PREFS,
+  NEW_USER_INPUT_MODE,
+  NEW_USER_UI_PREFS,
+  WORKSPACE_NAME_MAX,
+} from "./validation";
 
 export type SessionUser = {
   id: string;
@@ -107,11 +112,15 @@ export function defaultWorkspaceName(name?: string | null, email?: string | null
  * a "Main" space and a "Personal" profile.
  * On that first bootstrap, pending email invites are converted into
  * memberships/profile grants — invites only ever exist for emails that had no
- * account when they were invited (known accounts are added directly) — and the
- * one-time welcome email is queued (`sendWelcomeEmailOnce` guarantees the
- * "one-time" even if two first requests race into this branch).
+ * account when they were invited (known accounts are added directly). On the
+ * web the welcome email isn't sent here: it follows the currency step.
+ *
+ * `fromApi`: the REST API's own seams (`getApiContext`, `getApiUser`,
+ * `GET /workspaces`). The mobile app has no currency step, so an account made
+ * there isn't owed one, and its welcome email goes out now, in the currency
+ * guessed from where it signed up (changeable later in Settings).
  */
-export async function ensureBootstrap(userId: string) {
+export async function ensureBootstrap(userId: string, options: { fromApi?: boolean } = {}) {
   const db = getDb();
   // Theme defaults at the DB level; currency/locale live on the workspace
   // (seeded below with geo-detected defaults). The composer starts as one
@@ -122,7 +131,7 @@ export async function ensureBootstrap(userId: string) {
     .values({
       userId,
       inputMode: NEW_USER_INPUT_MODE,
-      uiPrefs: sql`${JSON.stringify(NEW_USER_UI_PREFS)}::jsonb`,
+      uiPrefs: sql`${JSON.stringify(options.fromApi ? NEW_API_USER_UI_PREFS : NEW_USER_UI_PREFS)}::jsonb`,
     })
     .onConflictDoNothing();
 
@@ -152,7 +161,12 @@ export async function ensureBootstrap(userId: string) {
       // and the sign-up is tagged as invited (growth report).
       await bindSplitInvitesOnSignup(userId, identity.email);
     }
-    await sendWelcomeEmailOnce(userId, { currency: defaults.currency, locale: defaults.locale });
+    // On the web the welcome email waits for the person to confirm their
+    // currency (`confirmOnboardingCurrency`), so its examples are in the
+    // currency they'll actually use. The mobile app has no such step.
+    if (options.fromApi) {
+      await sendWelcomeEmailOnce(userId, { currency: defaults.currency, locale: defaults.locale });
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   aiChats,
@@ -17,6 +17,9 @@ import {
   workspaces,
 } from "@/db/schema";
 import { ensureBootstrap, getUserSettings } from "@/lib/auth";
+import { isSupportedCurrency } from "@/lib/currencies";
+import { isKnownCountry, localeForCountry } from "@/lib/geo";
+import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
 import { requireWorkspaceRole } from "@/lib/workspaces";
 import { notTrashed } from "@/lib/trash-scope";
 import { findUserById } from "@/lib/directory";
@@ -47,6 +50,8 @@ import {
 import { normalizeSidebarNav, type SidebarNavLayout } from "@/lib/sidebar-nav";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
 import { heardFromOtherSchema, heardFromSchema } from "@/lib/attribution";
+import { aboutYouAnswersSchema, cleanAboutYou, type AboutYou } from "@/lib/about-you";
+import { z } from "zod";
 import type { UserSettings } from "@/db/schema";
 
 /**
@@ -492,6 +497,112 @@ export async function recordHeardFrom(
       updatedAt: new Date(),
     })
     .where(and(eq(users.id, userId), sql`${users.acquisition} ->> 'heardFrom' is null`));
+}
+
+const saveAboutYouSchema = z
+  .object({
+    status: z.enum(["answered", "skipped"]),
+    answers: aboutYouAnswersSchema.default({}),
+    // Sent only when the flow asked it (a fresh account, `HEARD_FROM_MAX_ACCOUNT_AGE_DAYS`).
+    heardFrom: heardFromSchema.optional(),
+    heardFromOther: heardFromOtherSchema.optional(),
+  })
+  .strict();
+
+/**
+ * Save the optional "About you" answers (`lib/about-you.ts`), answered or
+ * skipped, and never ask again (`ui_prefs.onboarding.aboutDone`). The answers
+ * are written once — a second tab finishing later doesn't overwrite the first.
+ * "How did you hear about us?" goes where it always has, `users.acquisition`
+ * (`recordHeardFrom`), so the growth report reads it unchanged.
+ */
+export async function saveAboutYou(userId: string, input: unknown): Promise<void> {
+  const { status, answers, heardFrom, heardFromOther } = parseOrThrow(saveAboutYouSchema, input);
+  await ensureBootstrap(userId);
+  const about: AboutYou = { ...cleanAboutYou(answers), status, at: new Date().toISOString() };
+  const db = getDb();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(users)
+      .set({ about, updatedAt: new Date() })
+      .where(and(eq(users.id, userId), sql`${users.about} is null`));
+    await tx
+      .update(userSettings)
+      .set({
+        uiPrefs: sql`
+          ${userSettings.uiPrefs} || jsonb_build_object(
+            'onboarding',
+            coalesce(${userSettings.uiPrefs} -> 'onboarding', '{}'::jsonb)
+              || jsonb_build_object('aboutDone', true)
+          )`,
+        updatedAt: new Date(),
+      })
+      .where(eq(userSettings.userId, userId));
+  });
+  if (heardFrom) await recordHeardFrom(userId, heardFrom, heardFromOther ?? null);
+}
+
+const confirmCurrencySchema = z
+  .object({
+    country: z.string().refine(isKnownCountry, "Pick a country from the list"),
+    currency: z.string().refine(isSupportedCurrency, "Pick a currency from the list"),
+  })
+  .strict();
+
+/**
+ * The new account's one required onboarding step
+ * (`components/app/currency-step-dialog.tsx`): the country and currency they
+ * confirmed — both pre-selected from where they signed up — become their own
+ * workspace's currency and number format, the step is done
+ * (`ui_prefs.onboarding.currencyPending`), and the one-time welcome email goes
+ * out, its amounts in that currency. The email waits for this on purpose: a
+ * guessed currency would put the wrong symbol on every example in it.
+ *
+ * It's the workspace they *own* that changes — their first one, made at
+ * bootstrap — even if someone else's is open: that's the one whose currency
+ * nobody has chosen yet. Repeating it (a second tab) re-saves the same choice;
+ * the email is still sent once (`sendWelcomeEmailOnce`).
+ */
+export async function confirmOnboardingCurrency(
+  userId: string,
+  input: unknown,
+): Promise<{ currency: string; locale: string }> {
+  const { country, currency } = parseOrThrow(confirmCurrencySchema, input);
+  await ensureBootstrap(userId);
+  const db = getDb();
+  const own = await db.query.workspaces.findFirst({
+    where: eq(workspaces.ownerId, userId),
+    orderBy: asc(workspaces.createdAt),
+    columns: { id: true, locale: true },
+  });
+  if (!own) throw badRequest("Your workspace isn't ready yet. Reload and try again.");
+  const locale = localeForCountry(country, own.locale);
+  await db.transaction(async (tx) => {
+    await tx
+      .update(workspaces)
+      .set({ currency, locale, updatedAt: new Date() })
+      .where(eq(workspaces.id, own.id));
+    await tx
+      .update(userSettings)
+      .set({
+        uiPrefs: sql`
+          ${userSettings.uiPrefs} || jsonb_build_object(
+            'onboarding',
+            coalesce(${userSettings.uiPrefs} -> 'onboarding', '{}'::jsonb)
+              || jsonb_build_object('currencyPending', false)
+          )`,
+        updatedAt: new Date(),
+      })
+      .where(eq(userSettings.userId, userId));
+  });
+  logger.info(`Onboarding currency confirmed as ${currency}`, {
+    event: "onboarding.currency_confirmed",
+    workspaceId: own.id,
+    currency,
+    country,
+  });
+  await sendWelcomeEmailOnce(userId, { currency, locale });
+  return { currency, locale };
 }
 
 /** Wave away the tracker's invite nudge (`ui_prefs.onboarding.inviteNudgeDismissed`).

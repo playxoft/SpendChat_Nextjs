@@ -125,6 +125,8 @@ export function EntryModeToggle({
               aria-checked={active}
               aria-label={label}
               data-mode={m}
+              // The product tour's "now try AI mode" stop, which the reader presses.
+              data-tour={isAi ? "entry-mode-ai" : undefined}
               tabIndex={keys.tabIndexFor(m)}
               onClick={() => onChange(m)}
               className={cn(

@@ -512,6 +512,17 @@ export function upgradeAction(info: PlanLimitInfo): UpgradeAction {
   return { href: checkoutPath({ plan: target, period: "yearly" }), label, trialDays };
 }
 
+/**
+ * Where an in-place "Upgrade" (a form's limit panel) goes: the Plans page,
+ * where every plan is laid out — except "New workspace" when the free slot is
+ * another workspace's, which is lifted from organisation settings. Unlike
+ * `upgradeAction` it never jumps straight into checkout.
+ */
+export function upgradePageHref(info: PlanLimitInfo): string {
+  if (info.limit === "newWorkspace" && !info.freeSlotHere) return "/app/settings/organization";
+  return "/app/upgrade";
+}
+
 /** What the dialog says when no plan lifts the limit. */
 export const BIGGEST_PLAN_LINE =
   "This workspace is already on our biggest plan. Write to us and we'll work out what you need.";

@@ -149,7 +149,7 @@ export function SpaceFormDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <LimitPanel lock={createLock} />
+          <LimitPanel lock={createLock} onNavigate={() => onOpenChange(false)} />
           <div className="space-y-1.5">
             <Label htmlFor="space-name">Name & icon</Label>
             <div className="flex items-center gap-2">
@@ -338,6 +338,7 @@ export function SpaceDeleteDialog({
         {!lastSpace && hasProfiles && (
           <>
             <LimitPanel
+              onNavigate={() => onOpenChange(false)}
               lock={
                 noneFit && moveLock && !addLimits?.readOnly
                   ? { ...moveLock, title: "No other space has room" }
@@ -459,6 +460,7 @@ export function MoveProfileDialog({
           </DialogDescription>
         </DialogHeader>
         <LimitPanel
+          onNavigate={() => onOpenChange(false)}
           lock={
             allFull && lock && !addLimits?.readOnly
               ? { ...lock, title: "Every other space is full" }

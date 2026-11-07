@@ -20,32 +20,37 @@ import {
   type TourTarget,
 } from "@/lib/product-tour";
 import { showEntryMode } from "./entry-mode-store";
+import { useOnboardingFlow } from "./onboarding-flow";
 import { usePlan } from "./upgrade-dialog";
 import {
   onProductTourRequest,
   productTourRequested,
+  showAccountMenu,
   takeProductTourRequest,
 } from "./product-tour-store";
 
 /**
- * How long a first visit waits before the tour opens. Long enough for the page
- * to settle — the composer has put the caret in itself (so the tour hands focus
- * back there when it ends) and the streamed header has its height — so the
- * first spotlight lands where the target is going to stay.
+ * How long after the tracker mounts a first visit's tour may open. Long enough
+ * for the page to settle — the composer has put the caret in itself (so the
+ * tour hands focus back there when it ends) and the streamed header has its
+ * height — so the first spotlight lands where the target is going to stay.
+ * Counted from the mount, not from the tour's turn: after the welcome's other
+ * popups the page settled long ago, and the tour takes over at once.
  */
 const AUTO_START_MS = 700;
 /** A replay waits for the account menu that asked for it to close and hand its focus back. */
 const REPLAY_START_MS = 150;
 /** How long after the card first shows that focus is held inside it (see the placement loop). */
 const FOCUS_HOLD_MS = 600;
-/** An overlay already open when the tour is due (a dialog, a menu): try again after this long. */
-const RETRY_MS = 1000;
+/** An overlay already open when the tour is due (a dialog, a menu): look again this often. */
+const RETRY_MS = 250;
 /**
- * The most a step that switches the composer's mode waits for the composer to
- * show it before placing its card anyway. A switch renders in a frame; this
- * only stops a composer that can't switch from holding the tour up for good.
+ * The most a step waits for what it shows before placing its card anyway: the
+ * composer in the step's mode, or the menu the step opens. Either renders in a
+ * frame or two; this only stops one that never comes from holding the tour up
+ * for good.
  */
-const MODE_WAIT_MS = 1000;
+const SHOW_WAIT_MS = 1000;
 
 /**
  * The window's size without its scrollbar. The card and the hole are `fixed`,
@@ -117,8 +122,10 @@ type Run = {
  * The tracker's step-by-step tour: a card beside each feature in turn, with
  * the page dimmed around a spotlight on it. It opens by itself once — on a new
  * account's first visit (`ui_prefs.onboarding.tourPending`, which only a new
- * account's bootstrap sets) — and again whenever "Take the tour" is picked from
- * the account menu.
+ * account's bootstrap sets), as the welcome's last popup, the moment the one
+ * before it is answered (`OnboardingFlowProvider`) — and again whenever "Take
+ * the tour" is picked from the account menu. Its last step opens that menu and
+ * spotlights the row (`TourStep.opens`), so it's seen where it will be.
  *
  * Built on Radix's Dialog, which brings the modal plumbing: focus moves in and
  * is held there (Tab cycles the card), Escape skips, the rest of the page is
@@ -133,6 +140,12 @@ type Run = {
  * (`showEntryMode`), so the real Manual/AI switch reads as checked, and the end
  * of the tour — however it ends — leaves the person's own choice in place.
  *
+ * A step with an `action` has no Next: the reader presses the spotlit control
+ * to go on. The page under the tour can't be clicked (it's a modal), so a
+ * transparent button sits exactly over the hole and takes that press — it
+ * looks and feels like pressing the control itself, and it's a real, labelled
+ * button for a keyboard or a screen reader.
+ *
  * Positioning is imperative. Each frame re-finds the target and writes the
  * card's and the hole's positions straight to the DOM, only when they moved:
  * that one loop follows scrolling, resizing, the composer growing and a phone
@@ -140,12 +153,16 @@ type Run = {
  */
 export function ProductTour({ autoStart }: { autoStart: boolean }) {
   const { voiceAllowed } = usePlan();
+  const { turn } = useOnboardingFlow();
+  // The welcome's popups before it go first: the tour is due once it's its turn.
+  const due = autoStart && turn === "tour";
   const reducedMotion = useReducedMotion();
   const [run, setRun] = useState<Run | null>(null);
   const [index, setIndex] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
   const holeRef = useRef<HTMLDivElement>(null);
   const nextRef = useRef<HTMLButtonElement>(null);
+  const actionRef = useRef<HTMLButtonElement>(null);
   // Where focus was when the tour opened, for it to go back to. Radix sends it
   // to the dialog's trigger, and this dialog has none.
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -179,21 +196,33 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
     startRef.current = start;
   });
 
+  // When the tracker mounted, for the settle-in wait below.
+  const mountedAt = useRef<number | null>(null);
+  useEffect(() => {
+    mountedAt.current ??= performance.now();
+  }, []);
+  // Started by itself already: a turn that goes back and comes again (a save
+  // of the popup before it failed and was redone) mustn't start it twice.
+  const autoStarted = useRef(false);
+
   // First visit: once per mount. Not over another overlay — two modal layers
   // fight over focus — so an open dialog or menu just pushes the start back.
+  // One that's only closing doesn't: that's the popup before it handing over.
   useEffect(() => {
-    if (!autoStart) return;
+    if (!due || autoStarted.current) return;
     let timer = 0;
     const attempt = () => {
-      if (hasOpenOverlay()) {
+      if (hasOpenOverlay({ ignoreClosing: true })) {
         timer = window.setTimeout(attempt, RETRY_MS);
         return;
       }
+      autoStarted.current = true;
       startRef.current(true);
     };
-    timer = window.setTimeout(attempt, AUTO_START_MS);
+    const settled = performance.now() - (mountedAt.current ?? performance.now());
+    timer = window.setTimeout(attempt, Math.max(0, AUTO_START_MS - settled));
     return () => window.clearTimeout(timer);
-  }, [autoStart]);
+  }, [due]);
 
   // Replays. The request is taken inside the timer, not when it's noticed: in
   // development React runs this effect twice, and a request taken by the first
@@ -232,6 +261,7 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
   const total = run?.steps.length ?? 0;
   const isLast = index === total - 1;
   const note = step ? run?.notes[step.id] : undefined;
+  const action = step?.action ?? null;
 
   // The composer's mode for this step: shown, not saved (see the store), so
   // ending the tour — or the tab closing mid-tour — leaves the person's choice
@@ -243,6 +273,24 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
   }, [tourMode]);
   // Leaving the tracker with the tour up (the browser's Back) ends it too.
   useEffect(() => () => showEntryMode(null), []);
+
+  // A step inside a menu opens it: the copy whose button is on screen (the
+  // menu is drawn in the phone's top bar and the desktop corner), followed
+  // every frame in case a resize swaps them. Shut again when the step is left.
+  const opens = step?.opens ?? null;
+  useEffect(() => {
+    if (!opens) return;
+    let frame = 0;
+    const follow = () => {
+      showAccountMenu(findTarget([opens]));
+      frame = requestAnimationFrame(follow);
+    };
+    follow();
+    return () => {
+      cancelAnimationFrame(frame);
+      showAccountMenu(null);
+    };
+  }, [opens]);
 
   function next() {
     if (isLast) finish();
@@ -256,6 +304,24 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
     if (index === 1) nextRef.current?.focus();
     setIndex((i) => i - 1);
   }
+
+  // Into and out of an action step the button that had focus goes away (Next
+  // isn't on one; the press-it button is only on one), so focus moves to the
+  // step's own way on: the press-it button there, Next everywhere else.
+  useEffect(() => {
+    if (!step) return;
+    const frame = requestAnimationFrame(() => {
+      const card = cardRef.current;
+      const active = document.activeElement;
+      const inTour = active === actionRef.current || (card?.contains(active) ?? false);
+      if (step.action) {
+        if (active !== actionRef.current) actionRef.current?.focus({ preventScroll: true });
+      } else if (!inTour) {
+        nextRef.current?.focus({ preventScroll: true });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [step]);
 
   // Bring the target into view once per step (the loop below follows it from there).
   useEffect(() => {
@@ -287,19 +353,21 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
       if (
         placedAt !== null &&
         performance.now() - placedAt < FOCUS_HOLD_MS &&
-        !card.contains(document.activeElement)
+        !card.contains(document.activeElement) &&
+        document.activeElement !== actionRef.current
       ) {
-        nextRef.current?.focus({ preventScroll: true });
+        (step.action ? actionRef.current : nextRef.current)?.focus({ preventScroll: true });
       }
       const viewport = viewportSize();
       // Re-found every frame, not kept: crossing the phone breakpoint swaps the
       // sidebar for the top bar's button and the sidebar's list for the bottom bar.
       const el = findTarget(step.targets);
-      // A step that switches the composer's mode holds its card and spotlight
-      // where they were until the composer is drawn in that mode.
-      if (el && step.mode && !composerShows(step.mode) && performance.now() - since < MODE_WAIT_MS) {
-        return;
-      }
+      // A step that switches the composer's mode, or opens a menu, holds its
+      // card and spotlight where they were until the composer is drawn in that
+      // mode or the menu is open. Otherwise the card would jump to the middle
+      // for a frame, or the spotlight frame the pane on its way out.
+      const waiting = el ? step.mode !== undefined && !composerShows(step.mode) : step.opens !== undefined;
+      if (waiting && performance.now() - since < SHOW_WAIT_MS) return;
       const rect = el?.getBoundingClientRect();
       const target: TourBox | null =
         rect && isOnScreen(rect, viewport)
@@ -336,6 +404,14 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
       hole.style.width = `${box.width}px`;
       hole.style.height = `${box.height}px`;
       hole.toggleAttribute("data-empty", !target);
+      // The press-it button covers the hole exactly (and nothing when there's no target).
+      const press = actionRef.current;
+      if (press) {
+        press.style.top = `${box.top}px`;
+        press.style.left = `${box.left}px`;
+        press.style.width = `${box.width}px`;
+        press.style.height = `${box.height}px`;
+      }
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
@@ -373,12 +449,19 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
               // under a tour. Escape is unaffected — Radix hears it on the
               // document, before this — and so is Tab, trapped by the dialog.
               e.stopPropagation();
-              if (e.key === "ArrowRight" && !isLast) {
+              if (e.key === "ArrowRight" && !isLast && !action) {
                 e.preventDefault();
                 next();
               } else if (e.key === "ArrowLeft") {
                 e.preventDefault();
                 back();
+              } else if (e.key === "Escape" && step.opens) {
+                // The menu the step opened is the top layer, so Radix gives it
+                // Escape instead of the tour. The menu stays open while the
+                // tour shows it, so Escape skips the tour here as it does on
+                // every other step.
+                e.preventDefault();
+                finish();
               }
             }}
           >
@@ -391,6 +474,16 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
               aria-hidden
               className="pointer-events-none fixed top-0 left-0 rounded-xl shadow-[0_0_0_200vmax_rgb(0_0_0/0.45)] outline-2 outline-ring data-animate:transition-[top,left,width,height] data-animate:duration-200 data-animate:ease-out data-empty:outline-none dark:shadow-[0_0_0_200vmax_rgb(0_0_0/0.65)]"
             />
+            {action && (
+              // Placed over the hole by the loop below; the pulsing ring says "press here".
+              <button
+                ref={actionRef}
+                type="button"
+                aria-label={action.label}
+                onClick={next}
+                className="fixed top-0 left-0 size-0 cursor-pointer rounded-xl ring-2 ring-primary/70 outline-none focus-visible:ring-[3px] focus-visible:ring-ring motion-safe:animate-pulse"
+              />
+            )}
             <div
               ref={cardRef}
               // Hidden until the loop has placed it, so it never shows at 0,0.
@@ -438,9 +531,13 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
                       Back
                     </Button>
                   )}
-                  <Button ref={nextRef} type="button" size="sm" onClick={next}>
-                    {isLast ? "Done" : "Next"}
-                  </Button>
+                  {action ? (
+                    <span className="text-xs font-medium text-foreground">{action.prompt}</span>
+                  ) : (
+                    <Button ref={nextRef} type="button" size="sm" onClick={next}>
+                      {isLast ? "Done" : "Next"}
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>

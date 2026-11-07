@@ -63,33 +63,42 @@ describe("firstName", () => {
 });
 
 describe("welcomeEmail", () => {
-  it("greets by first name in the subject and body", () => {
+  it("greets by first name in the subject and as its very first line", () => {
     const mail = welcomeEmail({ name: "Nitheesh Kumar" });
     expect(mail.subject).toBe(`Welcome to ${siteConfig.name}, Nitheesh`);
-    expect(mail.html).toContain("Hi Nitheesh,");
-    expect(mail.text).toContain("Hi Nitheesh,");
+    const seen = visibleText(mail.html);
+    // The greeting comes before the picture of the tracker — nothing above it
+    // but the wordmark.
+    expect(seen.indexOf("Welcome, Nitheesh")).toBeGreaterThan(-1);
+    expect(seen.indexOf("Welcome, Nitheesh")).toBeLessThan(seen.indexOf("Coffee"));
+    expect(mail.text.split("\n").slice(0, 4).join("\n")).toContain("Welcome, Nitheesh");
   });
 
   it("falls back to a neutral greeting without a name", () => {
     const mail = welcomeEmail({ name: null });
     expect(mail.subject).toBe(`Welcome to ${siteConfig.name}`);
-    expect(mail.html).toContain("Hi, thanks for signing up");
+    expect(visibleText(mail.html)).toContain(`Welcome to ${siteConfig.name}`);
   });
 
-  it("links to the tracker, the feature pages it mentions, and the repo — as absolute URLs", () => {
+  it("links to the tracker, every feature it mentions, and help — as absolute URLs on our domain", () => {
     const { html, text } = welcomeEmail({ name: "Ana" });
     for (const path of [
       "/app",
       "/features/chat-expense-tracker",
       "/features/ai-expense-tracker",
       "/features/voice-expense-tracker",
-      "/features/keyboard-shortcuts",
+      "/features/split",
+      "/features/budgets",
+      "/features/receipts-and-files",
       "/features/bulk-add",
       "/features/multiple-profiles",
       "/features/workspaces",
       "/features/export-and-print",
+      "/app/invoices",
+      "/app/ask",
+      // Where the currency is actually changed.
+      "/app/settings/account",
       "/docs",
-      "/blog",
       "/privacy",
     ]) {
       expect(html).toContain(`href="${siteUrl(path)}"`);
@@ -97,13 +106,40 @@ describe("welcomeEmail", () => {
     }
     expect(html).toContain(siteConfig.links.github);
     expect(html).not.toMatch(/href="\//); // no relative links in an email
+    // Nothing that reads like a campaign: no link shorteners, no tracking params.
+    expect(html).not.toMatch(/bit\.ly|utm_/);
   });
 
-  it("carries the three entry methods and the one-time footer in both bodies", () => {
+  it("goes greeting, tracker, call to action, three ways in, the workspace, then the one-time footer", () => {
     const { html, text } = welcomeEmail({ name: "Ana" });
-    for (const phrase of ["Type it", "Write it in a sentence", "Say it", "one-time note", "isn't a newsletter"]) {
-      expect(visibleText(html)).toContain(phrase);
-      expect(text).toContain(phrase);
+    const order = [
+      "Welcome, Ana",
+      "Personal",
+      "Coffee",
+      "Movie night",
+      "Log your first expense",
+      "Three ways to add an entry",
+      "Type it",
+      "Write it in a sentence",
+      "You check, then save",
+      "Say it",
+      "Everything in your workspace",
+      "Split bills",
+      "Invoices and quotes",
+      "Export anytime",
+      "Open SpendChat",
+      "Worth knowing",
+      "one-time email",
+      "product news, if you said yes",
+    ];
+    const seen = visibleText(html);
+    let at = -1;
+    for (const phrase of order) {
+      const next = seen.indexOf(phrase, at + 1);
+      expect(next, phrase).toBeGreaterThan(at);
+      at = next;
+      // Headings are capitalised in the text body.
+      expect(text.toLowerCase()).toContain(phrase.toLowerCase());
     }
     expect(text).not.toMatch(/<[a-z]/); // the text body is text
   });
@@ -112,44 +148,60 @@ describe("welcomeEmail", () => {
     // Only the first "word" is used as a name, and it is escaped in the HTML.
     const { html, text } = welcomeEmail({ name: `<img src=x onerror=alert(1)>` });
     expect(html).not.toContain("<img src=x");
-    expect(html).toContain("Hi &lt;img,");
+    expect(html).toContain("Welcome, &lt;img");
     // The text body carries it verbatim — there's nothing to inject into.
-    expect(text).toContain("Hi <img,");
+    expect(text).toContain("Welcome, <img");
   });
 
   it("is a complete light-scheme HTML document with a hidden preheader", () => {
     const { html } = welcomeEmail({ name: "Ana" });
     expect(html.startsWith("<!DOCTYPE html>")).toBe(true);
     expect(html).toContain('<meta name="color-scheme" content="light">');
-    expect(html).toContain("Your first expense takes about five seconds");
-    // The mark beside the wordmark is the only image; everything else is
-    // tables and borders so it renders with images blocked.
-    expect(html.match(/<img\b/g)).toHaveLength(1);
-    expect(html).toContain(`src="${siteUrl("/email/logo.png")}"`);
+    expect(html).toContain("your first expense takes about five seconds");
   });
 
-  it("opens on a two-message tracker feed in the recipient's currency, with the composer", () => {
-    const { html, text } = welcomeEmail({ name: "Ana", money: { currency: "INR", locale: "en-IN" } });
-    // Expense: neutral amount, no sign. Income: emerald, leading "+".
-    expect(html).toContain("₹4.50");
-    expect(html).toContain("+₹2,400.00");
-    expect(html).toContain("#059669");
-    expect(visibleText(html)).toContain("Today");
-    expect(visibleText(html)).toContain("Add a title — / for category, # for tags");
-    expect(text).toContain("→ Coffee · Food & Dining · ₹4.50 · 9:12");
-    expect(text).toContain("← Salary · Salary · +₹2,400.00 · 18:02");
-    // Default money format when none is given.
-    expect(welcomeEmail({ name: null }).html).toContain("$4.50");
+  it("has no pictures but the logo — the tracker and the drafts are drawn in HTML", () => {
+    const { html } = welcomeEmail({ name: "Ana" });
+    const imgs = html.match(/<img\b[^>]*>/g) ?? [];
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]).toContain(`src="${siteUrl("/email/logo.png")}"`);
+    expect(imgs[0]).toMatch(/\bwidth="\d+"/);
+    expect(imgs[0]).toMatch(/\bheight="\d+"/);
+  });
+
+  it("shows every example amount in the reader's own currency, at a believable size", () => {
+    const inr = visibleText(welcomeEmail({ name: "Ana", money: { currency: "INR", locale: "en-IN" } }).html);
+    // A coffee in rupees, not ₹4.50; the balance is what the entries add up to.
+    expect(inr).toContain("₹140.00");
+    expect(inr).toContain("+₹72,000.00");
+    expect(inr).toContain("₹69,420.00");
+    expect(inr).not.toContain("$");
+    // The AI sentence is typed the way a person types it: bare numbers.
+    expect(inr).toContain("lunch 360, uber 240 and got 9000 from freelancing");
+
+    const usd = visibleText(welcomeEmail({ name: "Ana" }).html);
+    expect(usd).toContain("$4.50");
+    expect(usd).toContain("+$2,400.00");
+    expect(usd).not.toContain("₹");
+
+    // No minor units: yen is whole.
+    const jpy = visibleText(welcomeEmail({ name: "Ana", money: { currency: "JPY", locale: "ja-JP" } }).html);
+    expect(jpy).toMatch(/[¥￥]680(?![.\d])/);
+  });
+
+  it("names the currency they chose, and where to change it", () => {
+    const inr = welcomeEmail({ name: "Ana", money: { currency: "INR", locale: "en-IN" } });
+    expect(visibleText(inr.html)).toMatch(/Your amounts are in .*\(INR\), as you chose/);
+    expect(inr.text).toMatch(/Your amounts are in .*\(INR\), as you chose/);
+    expect(welcomeEmail({ name: null }).text).toContain("(USD)");
   });
 
   it("draws shortcut keys as key caps in HTML and plain keys in text", () => {
     const { html, text } = welcomeEmail({ name: "Ana" });
-    expect(html).toMatch(/>M<\/span>/);
-    expect(html).toMatch(/>Shift<\/span>/);
-    expect(html).toMatch(/>R<\/span> starts an entry/);
-    expect(text).toContain("Q T E S jump between views; R starts an entry");
+    expect(html).toMatch(/Hold <span[^>]*>M<\/span> and speak/);
+    expect(html).toMatch(/>\/<\/span> anywhere in the app/);
     expect(text).toContain("Hold M and speak");
-    expect(text).toContain("Shift + a number switches");
+    expect(text).toContain("Tip: press / anywhere in the app");
     expect(text).not.toContain("`");
   });
 });

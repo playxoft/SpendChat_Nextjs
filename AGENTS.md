@@ -101,8 +101,12 @@ Authentication, secrets via Doppler.
   `workspace_invites` rows — carrying a shared secret `token` — accepted at the invitee's first
   bootstrap *or* from the `/invite/<token>` join page (`acceptInviteByToken`), which binds
   acceptance to the invited email. Email bodies are built only in `src/lib/email-templates.ts`
-  (pure, unit-tested, one shared layout: neutral, no images, plain-text twin); the one-time
-  welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. Split
+  (pure, unit-tested, one shared layout: neutral, plain-text twin; the only image is the logo
+  (`public/email/logo.png`) — anything that looks like the app is drawn in HTML tables, in the
+  reader's own currency, never a picture); the one-time
+  welcome email goes out when a new account confirms its country + currency (the one required
+  onboarding step, `confirmOnboardingCurrency`) and is claimed via `users.welcomed_at` in
+  `src/lib/welcome-email.ts`. Split
   invites (`src/services/split-invites.ts`) email only people **without** an account, **once per
   group per address, ever** (claimed on `split_members.invite_emailed_at`), inside a per-sender
   daily cap and a per-inbox weekly cap (`reserveInviteEmails`, both in `split_rate_log` — **not**

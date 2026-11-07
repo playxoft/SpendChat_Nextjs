@@ -81,7 +81,7 @@ export async function getApiContext(request: Request): Promise<{
   let settings: Awaited<ReturnType<typeof getUserSettings>>;
   let workspace: WorkspaceSummary | undefined;
   try {
-    await ensureBootstrap(user.id);
+    await ensureBootstrap(user.id, { fromApi: true });
     settings = await getUserSettings(user.id);
 
     const list = await listUserWorkspaces(user.id);
@@ -114,6 +114,6 @@ export async function getApiContext(request: Request): Promise<{
  */
 export async function getApiUser(request: Request): Promise<SessionUser> {
   const user = await requireApiUser(request);
-  await ensureBootstrap(user.id);
+  await ensureBootstrap(user.id, { fromApi: true });
   return user;
 }

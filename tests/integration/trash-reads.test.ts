@@ -196,6 +196,7 @@ const REGISTRY = {
   getTags: "n/a",
   listVaultTags: "n/a",
   getAccountProfile: "n/a",
+  getOwnWorkspaceMoney: "n/a",
   getHeardFromAnswered: "n/a",
   forgetAccessibleProfiles: "n/a",
   TRANSACTIONS_PAGE_SIZE: "n/a",

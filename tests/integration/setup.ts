@@ -107,6 +107,19 @@ vi.mock("@/lib/identity", async () => {
       return { id: user.id, email: user.email, name: user.name };
     },
     syncUserProfile: async () => {},
+    // Real lookup against the test DB: an account exists when a row has this
+    // user's id or email (what the uid and verified-email links reach).
+    accountExistsFor: async () => {
+      const user = getSessionUser();
+      if (!user) return false;
+      const { eq, or, sql } = await import("drizzle-orm");
+      const [row] = await getTestDb()
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(or(eq(schema.users.id, user.id), sql`lower(${schema.users.email}) = ${user.email.toLowerCase()}`))
+        .limit(1);
+      return Boolean(row);
+    },
   };
 });
 

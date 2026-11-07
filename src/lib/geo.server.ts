@@ -1,7 +1,14 @@
 import "server-only";
 import { headers } from "next/headers";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { edgeCountry, resolveSettingsDefaults, type SettingsDefaults } from "./geo";
+import {
+  currencyForCountry,
+  edgeCountry,
+  parseAcceptLanguage,
+  regionFromLocale,
+  resolveSettingsDefaults,
+  type SettingsDefaults,
+} from "./geo";
 
 /**
  * The country this request comes from, by Cloudflare's IP geolocation
@@ -44,4 +51,23 @@ export async function detectSettingsDefaults(): Promise<SettingsDefaults> {
   } catch {
     return resolveSettingsDefaults({});
   }
+}
+
+/**
+ * The country this request most likely comes from, for pre-selecting the
+ * onboarding country: Cloudflare's IP country first, then the region of the
+ * browser's languages (`en-IN` → IN). Null when neither says.
+ */
+export async function detectCountry(): Promise<string | null> {
+  const edge = await requestCountry();
+  if (edge && currencyForCountry(edge)) return edge;
+  try {
+    for (const tag of parseAcceptLanguage((await headers()).get("accept-language"))) {
+      const region = regionFromLocale(tag);
+      if (region && currencyForCountry(region)) return region;
+    }
+  } catch {
+    // No request scope.
+  }
+  return null;
 }

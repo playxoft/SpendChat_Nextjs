@@ -36,21 +36,27 @@ async function currentWorkspaceOf(alias: string) {
 /* ------------------------------------------------------------------------- */
 
 describe("welcome email", () => {
-  it("is queued once, on the bootstrap that creates the account's workspace", async () => {
+  // It follows the currency step instead (`currency-step.action.test.ts`).
+  it("isn't sent by the bootstrap that creates the account's workspace", async () => {
     await bootstrapUser("w1");
+    await ensureBootstrap(uid("w1"));
+    expect(sent()).toHaveLength(0);
+    const [row] = await db().select({ at: users.welcomedAt }).from(users).where(eq(users.id, uid("w1")));
+    expect(row!.at).toBeNull();
+  });
+
+  it("is queued once, and the claim is recorded", async () => {
+    await registerUser("w2");
+    expect(await sendWelcomeEmailOnce(uid("w2"))).toBe(true);
+    expect(await sendWelcomeEmailOnce(uid("w2"))).toBe(false);
     expect(sent()).toHaveLength(1);
     const mail = sent()[0]!;
-    expect(mail.to).toBe("w1@example.com");
-    expect(mail.subject).toBe(`Welcome to ${siteConfig.name}, w1`);
+    expect(mail.to).toBe("w2@example.com");
+    expect(mail.subject).toBe(`Welcome to ${siteConfig.name}, w2`);
     expect(mail.replyTo).toBe(siteConfig.supportEmail);
     expect(mail.html).toContain(`${siteConfig.url}/app`);
     expect(mail.text).toContain(`${siteConfig.url}/app`);
-
-    // Every later bootstrap is silent, and the claim is recorded.
-    await ensureBootstrap(uid("w1"));
-    await ensureBootstrap(uid("w1"));
-    expect(sent()).toHaveLength(1);
-    const [row] = await db().select({ at: users.welcomedAt }).from(users).where(eq(users.id, uid("w1")));
+    const [row] = await db().select({ at: users.welcomedAt }).from(users).where(eq(users.id, uid("w2")));
     expect(row!.at).toBeInstanceOf(Date);
   });
 
@@ -247,8 +253,8 @@ describe("acceptInviteByToken", () => {
     expect(await workspaceIdOf("g")).toBeTruthy();
     // …but the invited one is what /app opens.
     expect(await currentWorkspaceOf("g")).toBe(W);
-    // And, being a first bootstrap, the welcome email went out too.
-    expect(sent().some((m) => m.to === "g@example.com" && /^Welcome/.test(m.subject))).toBe(true);
+    // The welcome email waits for their currency step, like any new account's.
+    expect(sent().some((m) => m.to === "g@example.com" && /^Welcome/.test(m.subject))).toBe(false);
   });
 
   it("converts profile-scoped rows into grants", async () => {

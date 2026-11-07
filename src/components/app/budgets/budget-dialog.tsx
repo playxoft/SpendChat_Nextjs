@@ -239,7 +239,11 @@ export function BudgetDialog({
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            <LimitPanel lock={createLock} hint="Deleting a budget you don't need frees a place." />
+            <LimitPanel
+              lock={createLock}
+              hint="Deleting a budget you don't need frees a place."
+              onNavigate={() => onOpenChange(false)}
+            />
 
             {!editing && (
               <div className="space-y-2">

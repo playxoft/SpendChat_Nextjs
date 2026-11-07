@@ -42,12 +42,18 @@ export function useIsMac(): boolean {
  * same keystroke is about to close. Radix selects on Enter off React's root
  * listener and unmounts the listbox synchronously, so a bubble-phase caller is
  * told "no overlay" about a list that was open when the key was pressed.
+ *
+ * `ignoreClosing` passes over a Radix overlay that's only playing its closing
+ * animation (`data-state="closed"`): it has already let go of focus, so
+ * something opening right behind it — the welcome's next popup — needn't wait.
  */
-export function hasOpenOverlay(): boolean {
+export function hasOpenOverlay({ ignoreClosing = false }: { ignoreClosing?: boolean } = {}): boolean {
   if (typeof document === "undefined") return false;
-  return !!document.querySelector(
-    '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]',
-  );
+  const roles = ['[role="dialog"]', '[role="alertdialog"]', '[role="menu"]', '[role="listbox"]'];
+  const selector = ignoreClosing
+    ? roles.map((role) => `${role}:not([data-state="closed"])`).join(",")
+    : roles.join(",");
+  return !!document.querySelector(selector);
 }
 
 type Options = {

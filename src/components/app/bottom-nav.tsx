@@ -67,6 +67,7 @@ export function BottomNav({
         <Link
           href={splitNavItem.href}
           aria-current={splitActive ? "page" : undefined}
+          data-tour={navTourTarget(splitNavItem.id)}
           className={cn("relative", slot, splitActive ? "text-foreground" : "text-muted-foreground")}
         >
           <splitNavItem.icon className={cn("size-5", splitActive && "scale-105")} />

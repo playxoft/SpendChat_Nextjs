@@ -11,6 +11,12 @@ export const siteConfig = {
     "A minimal, fast, and private money tracker. Add income and expenses in seconds with a chat-style tracker, then filter, download, and print whenever you need. Free to use.",
   author: "Playxoft",
   supportEmail: "support@spendchat.app",
+  /**
+   * India's IT Rules, 2021 and the DPDP Act ask for a named Grievance Officer
+   * with contact details, published on the site. Shown by `GrievanceOfficer`
+   * on the Terms and Privacy Policy.
+   */
+  grievanceOfficer: { name: "Nitheesh", email: "support@playxoft.com" },
   /** Shared social/chat preview card: `public/opengraph-image.png`, 1200×630. */
   ogImage: "/opengraph-image.png",
   /**

@@ -41,6 +41,7 @@ import { TransactionComposer } from "@/components/app/transaction-composer";
 import { TrackerActions } from "@/components/app/tracker-actions";
 import { ViewerNotice } from "@/components/app/viewer-notice";
 import { OnboardingCards } from "@/components/app/onboarding-cards";
+import { AboutYouDialog } from "@/components/app/about-you-dialog";
 import { ProductTour } from "@/components/app/product-tour";
 import { ProfileSwitcher } from "@/components/app/profile-switcher";
 import { ProfileSwipe } from "@/components/app/profile-swipe";
@@ -167,11 +168,22 @@ export default async function ChatPage({
     workspace.role === "admin" &&
     !uiPrefs.onboarding.inviteNudgeDismissed &&
     accountAgeDays >= 1;
-  // A new account's first visit opens the product tour (only a new account's
-  // bootstrap sets the flag). The cards wait for it: one thing at a time, and
-  // the tour first. Ending the tour revalidates this page, and the cards' key
-  // remounts them with the answer — they read their props only on mount.
-  const tourPending = canWrite && uiPrefs.onboarding.tourPending;
+  // A new account's welcome runs back to back, one popup straight after the
+  // other: the terms (the layout's gate), the country and currency (the
+  // layout's step), the optional "About you" questions, then the product tour.
+  // The order is kept in the browser (`OnboardingFlowProvider`), so each popup
+  // is rendered while it's owed and opens on its turn — the moment the one
+  // before it is answered, without waiting for that answer's save.
+  const onboarding = uiPrefs.onboarding;
+  // The optional "About you" questions: once, for every account. "How did you
+  // hear about us?" rides along only for a fresh account.
+  const aboutPending = !onboarding.aboutDone;
+  // The tour opens on a new account's first visit (only a new account's
+  // bootstrap sets the flag), after the popups above. The cards wait for all
+  // of it; ending the tour revalidates this page, and the cards' key remounts
+  // them with the answer — they read their props only on mount.
+  const tourPending = canWrite && onboarding.tourPending;
+  const welcomePending = onboarding.currencyPending || aboutPending || tourPending;
 
   const timeZone = await getTimeZone();
   const today = todayISO(timeZone);
@@ -254,11 +266,11 @@ export default async function ChatPage({
         </header>
 
         <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-4">
+          {aboutPending && <AboutYouDialog askHeardFrom={!heardFromAnswered} />}
           {canWrite && (
             <OnboardingCards
-              key={tourPending ? "tour" : "cards"}
-              askHeardFrom={!heardFromAnswered && !tourPending}
-              showInviteNudge={showInviteNudge && !tourPending}
+              key={welcomePending ? "waiting" : "cards"}
+              showInviteNudge={showInviteNudge && !welcomePending}
             />
           )}
           <Suspense key={streamKey} fallback={<ChatFeedSkeleton />}>

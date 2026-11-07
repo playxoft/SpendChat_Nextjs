@@ -45,6 +45,7 @@ import {
 } from "../lib/validation";
 import type { UiPrefs } from "../lib/validation";
 import type { Acquisition } from "../lib/attribution";
+import type { AboutYou } from "../lib/about-you";
 import { PERSONAL_PLANS } from "../lib/plans";
 import {
   DOC_FIELD_LIMITS,
@@ -142,6 +143,25 @@ export const users = pgTable(
     // from then on they can't buy a plan, a plan change or a top-up — checkout
     // answers "contact support". Only support clears it, by hand.
     purchasesBlockedAt: timestamp("purchases_blocked_at", { withTimezone: true }),
+    // The Terms of Service + Privacy Policy bundle this person last agreed to
+    // (`LEGAL_VERSION` in `src/lib/legal.ts`) and when. Written by the session
+    // route at sign-up and by the in-app gate (`services/terms.ts`); a value
+    // other than the current version re-asks once. Null = never accepted
+    // (accounts that predate the checkbox, or one created before it was ticked).
+    termsVersion: text("terms_version"),
+    termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
+    // Answers to the optional "About you" questions asked once after sign-up
+    // (personal or business use, goals, …) — fixed choices only, nothing
+    // identifying. Written once, answered or skipped, so it never asks again.
+    // Shape in `src/lib/about-you.ts`; read back by `pnpm growth:report:*`.
+    // Null = not asked yet.
+    about: jsonb("about").$type<AboutYou>(),
+    // When this person said yes to product news — new features, updates,
+    // offers and occasional feedback requests (the optional second box on the
+    // terms dialog, or Settings → Account). Marketing, so consent only: null =
+    // no, and turning it off clears it. Nothing sends these yet; whatever does
+    // later must check this column (and can't be ZeptoMail — see AGENTS.md).
+    newsEmailsAt: timestamp("news_emails_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

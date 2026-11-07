@@ -18,7 +18,7 @@ import { defaultSidebarNav } from "@/lib/sidebar-nav";
 /** Every namespace's default — what an empty or unreadable bag reads as. */
 const DEFAULTS = {
   composer: { density: "normal" },
-  onboarding: { inviteNudgeDismissed: false, tourPending: false },
+  onboarding: { inviteNudgeDismissed: false, tourPending: false, aboutDone: false, currencyPending: false },
   sidebar: { collapsedSpaces: [], nav: defaultSidebarNav() },
 };
 
@@ -49,20 +49,26 @@ describe("normalizeUiPrefs", () => {
 });
 
 describe("normalizeUiPrefs — onboarding namespace", () => {
-  it("defaults to not dismissed, and to no tour owed", () => {
+  it("defaults to not dismissed, no tour owed, and About you not yet asked", () => {
     expect(normalizeUiPrefs({ composer: { density: "compact" } }).onboarding).toEqual({
       inviteNudgeDismissed: false,
       tourPending: false,
+      aboutDone: false,
+      currencyPending: false,
     });
   });
   it("keeps a dismissal and degrades a non-boolean", () => {
     expect(normalizeUiPrefs({ onboarding: { inviteNudgeDismissed: true } }).onboarding).toEqual({
       inviteNudgeDismissed: true,
       tourPending: false,
+      aboutDone: false,
+      currencyPending: false,
     });
     expect(normalizeUiPrefs({ onboarding: { inviteNudgeDismissed: "yes" } }).onboarding).toEqual({
       inviteNudgeDismissed: false,
       tourPending: false,
+      aboutDone: false,
+      currencyPending: false,
     });
   });
   // The tour is new-users only because of this default: every row written
@@ -74,8 +80,24 @@ describe("normalizeUiPrefs — onboarding namespace", () => {
     expect(normalizeUiPrefs({ onboarding: { tourPending: true } }).onboarding).toEqual({
       inviteNudgeDismissed: false,
       tourPending: true,
+      aboutDone: false,
+      currencyPending: false,
     });
     expect(normalizeUiPrefs({ onboarding: { tourPending: "true" } }).onboarding.tourPending).toBe(false);
+  });
+  // Unlike the tour, "About you" is asked of existing accounts too: a missing
+  // key reads "not done yet".
+  it("asks About you once — done only where it was written as done", () => {
+    expect(normalizeUiPrefs({}).onboarding.aboutDone).toBe(false);
+    expect(normalizeUiPrefs({ onboarding: { aboutDone: true } }).onboarding.aboutDone).toBe(true);
+    expect(normalizeUiPrefs({ onboarding: { aboutDone: "yes" } }).onboarding.aboutDone).toBe(false);
+  });
+  // Like the tour, the currency step is new-accounts only: a missing key
+  // reads "not owed", so no existing account is suddenly stopped by it.
+  it("owes the currency step only where it was written as owed", () => {
+    expect(normalizeUiPrefs({}).onboarding.currencyPending).toBe(false);
+    expect(normalizeUiPrefs({ onboarding: { currencyPending: true } }).onboarding.currencyPending).toBe(true);
+    expect(normalizeUiPrefs({ onboarding: { currencyPending: 1 } }).onboarding.currencyPending).toBe(false);
   });
 });
 

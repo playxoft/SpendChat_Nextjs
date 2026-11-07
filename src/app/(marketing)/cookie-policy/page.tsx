@@ -10,6 +10,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { siteConfig } from "@/lib/site";
+import { LEGAL_UPDATED } from "@/lib/legal";
+import { InShort, InShortNote } from "@/components/legal/legal-page";
 
 export const metadata = createMetadata({
   title: "Cookie Policy",
@@ -17,7 +19,7 @@ export const metadata = createMetadata({
   path: "/cookie-policy",
 });
 
-const LAST_UPDATED = "September 30, 2026";
+const LAST_UPDATED = LEGAL_UPDATED;
 
 // Strictly-necessary cookies first, then the consent-gated analytics ones — the
 // note under the table splits them that way.
@@ -58,6 +60,13 @@ const cookieTable = [
     duration: "180 days",
   },
   {
+    name: "tz",
+    provider: siteConfig.name,
+    purpose:
+      "Your device's time zone (for example “Asia/Kolkata”), set inside the signed-in app so dates and times — “today”, this month's totals — are shown in your local time rather than the server's.",
+    duration: "1 year",
+  },
+  {
     name: "_ga, _ga_*",
     provider: "Google Analytics",
     purpose:
@@ -78,26 +87,45 @@ export default function CookiePolicyPage() {
     <div className="mx-auto max-w-3xl px-4 py-16">
       <h1 className="text-4xl font-semibold tracking-tight">Cookie Policy</h1>
       <p className="mt-3 text-sm text-muted-foreground">Last updated: {LAST_UPDATED}</p>
+      <InShortNote />
 
       <div className="mt-10 space-y-8 text-muted-foreground">
         <section className="space-y-3">
           <h2 className="text-xl font-medium text-foreground">Overview</h2>
+          <InShort>This page explains the few cookies and bits of browser storage SpendChat uses, and how you stay in control.</InShort>
           <p>
-            This policy explains how {siteConfig.name} uses cookies on our public pages
-            (this site, outside the signed-in app) — what we set, why, and how you can
-            change your mind at any time. It should be read alongside our{" "}
+            This policy explains how {siteConfig.author} uses cookies and similar technologies
+            (such as your browser&apos;s local storage) on {siteConfig.domain} and in the
+            signed-in app — what we set, why, the legal basis, and how you can change your mind
+            at any time. It should be read alongside our{" "}
             <Link
               href="/privacy"
               className="underline underline-offset-2 hover:text-foreground"
             >
               Privacy Policy
             </Link>
-            .
+            , which explains how we handle the personal data involved.
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-xl font-medium text-foreground">The legal basis</h2>
+          <InShort>Cookies SpendChat needs to work are always on. Everything else — analytics — waits for your OK.</InShort>
+          <p>
+            Under the EU ePrivacy Directive, the UK&apos;s Privacy and Electronic
+            Communications Regulations and similar laws elsewhere, we may store or read
+            information on your device without asking only where it is strictly necessary to
+            provide a service you have asked for — keeping you signed in, remembering a
+            setting you chose. Everything else needs your prior, freely given consent, which
+            you can refuse or withdraw as easily as you gave it. We sort every cookie and
+            storage entry on this page into one of those two groups, and only the analytics
+            cookies are in the second.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-medium text-foreground">What are cookies?</h2>
+          <InShort>Cookies are small text files a website saves in your browser so it can remember things.</InShort>
           <p>
             Cookies are small text files a website stores in your browser. They let a
             site remember something between page loads or visits — like a preference, a
@@ -107,17 +135,33 @@ export default function CookiePolicyPage() {
 
         <section className="space-y-3">
           <h2 className="text-xl font-medium text-foreground">Nothing loads until you decide</h2>
+          <InShort>Analytics only start if you say yes, and you can change your mind anytime.</InShort>
           <p>
             When you first visit, a banner asks you to Accept or Decline analytics
             cookies. Google Analytics and Microsoft Clarity are not loaded, and set no
             cookies, until you click Accept — Decline is a real, working choice, not
-            just cosmetic. Analytics also never runs inside the signed-in app; it&apos;s
-            scoped to these public marketing pages only.
+            just cosmetic, and both buttons are equally easy to use. Analytics also never
+            runs inside the signed-in app; it&apos;s scoped to these public marketing pages
+            only.
+          </p>
+          <p>
+            If your browser sends a{" "}
+            <a
+              href="https://globalprivacycontrol.org"
+              target="_blank"
+              rel="noreferrer"
+              className="text-foreground underline underline-offset-2 hover:no-underline"
+            >
+              Global Privacy Control
+            </a>{" "}
+            signal, we treat it as Decline: the banner doesn&apos;t appear and analytics stay
+            off. You can still choose to accept from the button at the bottom of this page.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-medium text-foreground">Cookies we use</h2>
+          <InShort>A few cookies keep you signed in and remember your choices. Analytics cookies appear only if you allow them.</InShort>
           <div className="overflow-hidden rounded-xl border">
             <Table>
               <TableHeader>
@@ -146,13 +190,14 @@ export default function CookiePolicyPage() {
           </div>
           <p className="text-sm">
             The {siteConfig.name} and Firebase rows are strictly necessary — the site
-            can&apos;t remember your consent choice, keep you signed in, or honour your
-            &ldquo;take me straight to the app&rdquo; choice without them, so they
-            aren&apos;t covered by the Accept/Decline choice below. The two Firebase
-            rows carry your sign-in itself; the three {siteConfig.name} ones hold only a
-            setting (&ldquo;granted&rdquo;, &ldquo;1&rdquo;) and identify no one. None
-            of the five is used for analytics or shared with anyone. The Google
-            Analytics and Microsoft Clarity rows are only ever set if you click Accept.
+            can&apos;t remember your consent choice, keep you signed in, show times in your
+            time zone, or honour your &ldquo;take me straight to the app&rdquo; choice
+            without them, so they aren&apos;t covered by the Accept/Decline choice below.
+            The two Firebase rows carry your sign-in itself; the four {siteConfig.name} ones
+            hold only a setting (&ldquo;granted&rdquo;, &ldquo;1&rdquo;, a time zone) and
+            identify no one. None of the six is used for analytics or shared with anyone.
+            The Google Analytics and Microsoft Clarity rows are only ever set if you click
+            Accept.
           </p>
         </section>
 
@@ -160,6 +205,7 @@ export default function CookiePolicyPage() {
           <h2 className="text-xl font-medium text-foreground">
             Why we use analytics cookies
           </h2>
+          <InShort>With your OK, analytics show us which pages help people, so we can make the site better. They never run inside the app.</InShort>
           <p>
             Google Analytics and Microsoft Clarity tell us which pages get visited, which
             buttons and links people actually use, and where visitors drop off — so we
@@ -171,6 +217,13 @@ export default function CookiePolicyPage() {
 
         <section className="space-y-3">
           <h2 className="text-xl font-medium text-foreground">Local storage (not a cookie)</h2>
+          <InShort>Your browser also keeps a few small notes for SpendChat, like your view settings. You can clear them anytime.</InShort>
+          <p>
+            Local storage works like a cookie but is never sent to a server automatically.
+            Every entry we use is strictly necessary for something you asked for, starts with{" "}
+            <span className="text-foreground">spendchat</span>, stays on your device unless
+            stated below, and can be removed by clearing this site&apos;s data in your browser.
+          </p>
           <p>
             The site also keeps a small entry in your browser&apos;s local storage,{" "}
             <span className="text-foreground">spendchat:attribution</span>: the name of the
@@ -184,6 +237,20 @@ export default function CookiePolicyPage() {
             recognise you. Clear your site data to remove it sooner.
           </p>
           <p>
+            <span className="text-foreground">spendchat:terms-accepted</span> is written only
+            when you create an account with an email address: it records that you ticked
+            &ldquo;I agree&rdquo; to our terms, whether you also ticked the optional product-news
+            box, the date and the new account&apos;s internal sign-in id (not your email). It is sent once, with your first sign-in
+            after you verify your address, so we can record your agreement, and is then
+            removed; if that doesn&apos;t happen within 14 days, it is discarded.
+          </p>
+          <p>
+            Inside the signed-in app, a few entries remember how you like things on this
+            device — for example the transaction table&apos;s columns, the file view and the
+            composer&apos;s entry mode — and one, in session storage, remembers for the rest of
+            your visit that you dismissed the &ldquo;go to the app&rdquo; offer.
+          </p>
+          <p>
             The free tools at /tools keep a few more entries there, all starting{" "}
             <span className="text-foreground">spendchat:tools:</span> — the currency you picked,
             invoice and quotation drafts, net-worth snapshots, savings-challenge progress and
@@ -195,9 +262,12 @@ export default function CookiePolicyPage() {
 
         <section className="space-y-3">
           <h2 className="text-xl font-medium text-foreground">Third-party providers</h2>
+          <InShort>If you allow analytics, Google and Microsoft provide those tools. They never see what you record in the app.</InShort>
           <p>
-            These cookies are set by third parties who process the resulting data under
-            their own privacy policies:
+            If you accept analytics cookies, Google and Microsoft set and read them and receive
+            the resulting data — including your IP address, device and browser details and the
+            pages you visit — which they may process in the United States. They process it
+            under their own privacy policies:
           </p>
           <ul className="list-inside list-disc space-y-2">
             <li>
@@ -229,25 +299,30 @@ export default function CookiePolicyPage() {
           <h2 className="text-xl font-medium text-foreground">
             Browser controls & Do Not Track
           </h2>
+          <InShort>You can block cookies in your browser, and if it sends Global Privacy Control, we take that as a no to analytics.</InShort>
           <p>
-            Most browsers let you block or delete cookies in their settings, and we
-            don&apos;t currently respond to the &ldquo;Do Not Track&rdquo; browser
-            signal — declining the banner below has the same effect and is the more
-            reliable choice, since it stops the analytics scripts from loading at all
-            rather than asking them to behave differently.
+            Most browsers let you block or delete cookies in their settings; blocking the
+            strictly necessary ones will stop sign-in from working. We honour Global Privacy
+            Control (above). We don&apos;t respond to the older &ldquo;Do Not Track&rdquo;
+            signal, which has no agreed meaning — declining the banner below has the same
+            effect and is the more reliable choice, since it stops the analytics scripts from
+            loading at all rather than asking them to behave differently.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-medium text-foreground">Changes</h2>
+          <InShort>If we change how we use cookies, we’ll update this page.</InShort>
           <p>
-            We may update this policy as our cookie usage changes. Material changes will
-            be reflected by the &ldquo;Last updated&rdquo; date above.
+            We update this policy whenever we add, remove or change a cookie or storage entry,
+            and change the &ldquo;Last updated&rdquo; date above. We will never start using a
+            non-essential cookie without asking for your consent first.
           </p>
         </section>
 
         <section className="space-y-3">
           <h2 className="text-xl font-medium text-foreground">Contact</h2>
+          <InShort>Questions about cookies? Email us.</InShort>
           <p>
             Questions about this policy? Email us at{" "}
             <a

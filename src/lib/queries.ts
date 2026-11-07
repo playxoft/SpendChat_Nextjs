@@ -30,6 +30,7 @@ import {
   transactionAttachments,
   transactions,
   users,
+  workspaces,
 } from "@/db/schema";
 import { accessibleProfileIds } from "@/lib/workspaces";
 import { notTrashed, trashedOnly } from "@/lib/trash-scope";
@@ -1181,14 +1182,42 @@ async function getProfilesUncached(userId: string, workspaceId: string) {
  * The signed-in user's own account row for the settings page — name, email, and
  * avatar. `getAppContext().user` (a `SessionUser`) carries no `image`, so the
  * account page reads it here rather than widening the hot auth path's shape.
+ * Memoised per request: the app layout reads it for the terms gate, and the
+ * tracker again — only while the "About you" questions are still owed — to
+ * wait for that gate.
  */
-export async function getAccountProfile(userId: string) {
+export const getAccountProfile = cache(async (userId: string) => {
   const db = getDb();
   const [row] = await db
-    .select({ id: users.id, name: users.name, email: users.email, image: users.image })
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      image: users.image,
+      // For the app layout's terms gate — same row, same round-trip.
+      termsVersion: users.termsVersion,
+      // Settings → Account's "Product news" switch.
+      newsEmails: sql<boolean>`${users.newsEmailsAt} is not null`,
+      createdAt: users.createdAt,
+    })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
+  return row ?? null;
+});
+
+/**
+ * The currency and number format of the workspace this person owns — their
+ * first, made at bootstrap — for the onboarding currency step, which sets it.
+ */
+export async function getOwnWorkspaceMoney(
+  userId: string,
+): Promise<{ currency: string; locale: string } | null> {
+  const row = await getDb().query.workspaces.findFirst({
+    where: eq(workspaces.ownerId, userId),
+    orderBy: asc(workspaces.createdAt),
+    columns: { currency: true, locale: true },
+  });
   return row ?? null;
 }
 

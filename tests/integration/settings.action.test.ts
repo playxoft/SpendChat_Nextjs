@@ -228,8 +228,9 @@ describe("onboarding cards", () => {
       .where(eq(userSettings.userId, uid("d")));
     expect(row.uiPrefs).toEqual({
       composer: { density: "compact" },
-      // A new account is owed the tour; dismissing the nudge leaves that alone.
-      onboarding: { inviteNudgeDismissed: true, tourPending: true },
+      // A new account is owed the currency step, the tour and About you;
+      // dismissing the nudge leaves those alone.
+      onboarding: { inviteNudgeDismissed: true, tourPending: true, aboutDone: false, currencyPending: true },
     });
   });
 

@@ -4,6 +4,7 @@ import { PLAN_NAMES, TOPUP } from "@/lib/plans";
 import { CURRENCIES, STUDENT_DISCOUNT, TRIAL_DAYS } from "@/lib/pricing";
 import { createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
+import { ADULT_AGE, LEGAL_UPDATED } from "@/lib/legal";
 
 export const metadata = createMetadata({
   title: "Billing & refund policy",
@@ -11,7 +12,7 @@ export const metadata = createMetadata({
   path: "/billing-policy",
 });
 
-const LAST_UPDATED = "October 9, 2026";
+const LAST_UPDATED = LEGAL_UPDATED;
 
 const paid = `${PLAN_NAMES.plus} and ${PLAN_NAMES.pro}`;
 const currencies = CURRENCIES.map((c) => c.code).join(", ");
@@ -29,6 +30,7 @@ const sections: { id: string; h: string; p: React.ReactNode[] }[] = [
     p: [
       `Every workspace has its own plan — Free, ${PLAN_NAMES.plus} or ${PLAN_NAMES.pro} — with its own billing date and its own invoices. Everyone gets one free workspace; each extra workspace needs its own paid plan, and until it has one it's view-only.`,
       "Only a workspace admin can buy a plan. The admin who buys it pays for it with their own payment method, and only they see its invoices and payment details and can move it to a bigger plan (or to any plan that renews at a higher price); any admin can move it to a plan that renews for no more, or cancel it. Payments are processed by Dodo Payments, our merchant of record: they handle the payment, the invoice and the sales tax (GST or VAT) for your country, which is added at checkout.",
+      `If you're under ${ADULT_AGE}, check with a parent or guardian before you buy — they need to be OK with it (see section 2.2 of our Terms of Service).`,
       "If you're removed from a workspace whose plan you pay for, the workspace keeps its plan and you keep paying until you cancel it — it stays listed on your Billing page. If you delete your account, every plan you pay for is cancelled at the end of its paid period, and a checkout you'd opened but not finished (links stay open for 24 hours) is cancelled if it's paid later — write to us and we'll refund that payment.",
     ],
   },
