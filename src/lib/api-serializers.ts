@@ -8,7 +8,7 @@ import type { TransactionRow, TrashedTransactionRow } from "@/lib/queries";
 import { purgeAt } from "@/lib/trash";
 import type { WorkspaceSummary } from "@/lib/workspaces";
 import type { WorkspaceUsage } from "@/lib/entitlements";
-import type { PersonalPlan } from "@/lib/plans";
+import { PLAN_LIMITS, type PersonalPlan } from "@/lib/plans";
 import type { BudgetView } from "@/services/budgets";
 import type { OrganizationOverview } from "@/services/organizations";
 import type { SpaceAccess, SpaceSummary } from "@/services/spaces";
@@ -374,6 +374,8 @@ export type ApiUsage = {
     topUpExpiresAt: string | null;
     /** ISO 8601 — the first instant of next month (UTC). */
     resetsAt: string;
+    /** Longest note `POST /ai/parse` takes on this plan, in characters. Since 6.15.0. */
+    noteMaxChars: number;
   };
   storage: {
     usedBytes: number;
@@ -415,6 +417,7 @@ export function serializeUsage(u: WorkspaceUsage): ApiUsage {
       topUpRemaining: u.ai.topUpRemaining,
       topUpExpiresAt: u.ai.topUpExpiresAt,
       resetsAt: u.ai.resetsAt,
+      noteMaxChars: PLAN_LIMITS[u.plan].aiNoteChars,
     },
     storage: {
       usedBytes: u.storage.usedBytes,

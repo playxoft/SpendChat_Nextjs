@@ -27,7 +27,7 @@ import {
 import { aiActionsLock } from "@/lib/add-limits";
 import { ASK_NEEDS_EDIT_MESSAGE, aiActionsSpent, type AiActionsLeft } from "@/lib/ai-limits";
 import { planLimitOf } from "@/lib/plan-limit";
-import { AI_CHAT_QUESTION_MAX } from "@/lib/validation";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 import { isTypingTarget } from "@/lib/shortcuts";
 import { hasOpenOverlay } from "@/hooks/use-shortcut";
@@ -391,7 +391,8 @@ export function AskView({
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={onKeyDown}
                 rows={1}
-                maxLength={AI_CHAT_QUESTION_MAX}
+                // The plan's cap; the server holds every question to it too.
+                maxLength={PLAN_LIMITS[plan].aiQuestionChars}
                 disabled={spent}
                 placeholder="Ask about your money…"
                 aria-label="Your question"

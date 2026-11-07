@@ -23,10 +23,11 @@ import {
   workspaceMembers,
 } from "@/db/schema";
 import { buildChatContext, CHAT_UNAVAILABLE_MESSAGE } from "@/lib/ai-chat";
-import { ASK_NEEDS_EDIT_MESSAGE } from "@/lib/ai-limits";
+import { ASK_NEEDS_EDIT_MESSAGE, aiQuestionTooLongMessage } from "@/lib/ai-limits";
 import { logger } from "@/lib/logger";
 import { monthStartBack, todayISO } from "@/lib/dates";
 import { PLAN_LIMITS } from "@/lib/plans";
+import { AI_CHAT_QUESTION_MAX } from "@/lib/validation";
 import {
   aiActionsLeftFor,
   gatherChatData,
@@ -396,7 +397,17 @@ describe("askAi — what a question costs", () => {
     signInAs("own");
     await bootstrapUser("own");
     expect(await askAi({ question: "   " })).toMatchObject({ ok: false, code: "validation_error" });
-    expect(await askAi({ question: "x".repeat(1001) })).toMatchObject({ ok: false, code: "validation_error" });
+    // Past every plan's cap: the schema refuses it.
+    expect(await askAi({ question: "x".repeat(AI_CHAT_QUESTION_MAX + 1) })).toMatchObject({
+      ok: false,
+      code: "validation_error",
+    });
+    // Past this (Free) plan's cap: refused with the plan's own number.
+    expect(await askAi({ question: "x".repeat(PLAN_LIMITS.free.aiQuestionChars + 1) })).toMatchObject({
+      ok: false,
+      code: "bad_request",
+      error: aiQuestionTooLongMessage("free"),
+    });
     expect(spy).not.toHaveBeenCalled();
     expect(await ledger("own")).toEqual([]);
   });

@@ -33,8 +33,8 @@ import {
 import { SCOPE_MAX_PROFILE_IDS } from "@/lib/profile-scope";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import type { TxnTagDTO } from "@/lib/tags";
-import { MAX_INPUT_CHARS, parseTransactionsText, type AiParsedDraft } from "@/lib/ai-parse";
-import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
+import { parseTransactionsText, type AiParsedDraft } from "@/lib/ai-parse";
+import { MAX_AUDIO_BYTES, aiNoteMaxChars, aiNoteTooLongMessage } from "@/lib/ai-limits";
 import { isSupportedAudioType, parseClipDurationMs, transcribeVoiceNote } from "@/lib/ai-transcribe";
 import { chargeAiParse, chargeVoiceTranscribe, withAiCharge, type AiCharge } from "@/lib/ai-quota";
 import type { AiActionsLeft } from "@/lib/ai-limits";
@@ -378,8 +378,9 @@ export async function parseTransactionsWithAI(
       if (!note) throw badRequest("Type a note for the AI to turn into transactions");
       // Cheap local checks first, then permission, then quota — a denied caller
       // must never burn another caller's budget.
-      if (note.length > MAX_INPUT_CHARS) {
-        throw badRequest(`That's a lot of text — keep it under ${MAX_INPUT_CHARS} characters`);
+      // The workspace's plan sets how long a note may be (`aiNoteChars`).
+      if (note.length > aiNoteMaxChars(workspace.plan)) {
+        throw badRequest(aiNoteTooLongMessage(workspace.plan));
       }
       // Anything but an explicit "voice" is a typed note — the cautious default,
       // since a typed note is the one that's charged.

@@ -17,7 +17,7 @@ const BAR = { ok: "bg-primary", warn: "bg-amber-500", full: "bg-destructive" } a
 
 /**
  * How much of the plan this workspace is using, in one compact row — so the
- * plans below read against real numbers ("we're at 48 of 50 AI actions").
+ * plans below read against real numbers ("we're at 28 of 30 AI actions").
  * The full, actionable version is the usage card in Settings → Workspace.
  */
 export function UsageStrip({ usage }: { usage: UsageStripData }) {

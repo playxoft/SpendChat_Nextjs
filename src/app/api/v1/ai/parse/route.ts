@@ -5,7 +5,8 @@ import { apiOk, handle, parseOrThrow, readJson } from "@/lib/api-response";
 import { badRequest, forbidden } from "@/lib/errors";
 import { canWriteInWorkspace } from "@/lib/workspaces";
 import { chargeAiParse, withAiCharge } from "@/lib/ai-quota";
-import { MAX_INPUT_CHARS, parseTransactionsText } from "@/lib/ai-parse";
+import { parseTransactionsText } from "@/lib/ai-parse";
+import { aiNoteMaxChars, aiNoteTooLongMessage } from "@/lib/ai-limits";
 import { getCategories, getTags } from "@/lib/queries";
 import { DEFAULT_TIME_ZONE, isValidTimeZone } from "@/lib/timezone";
 import { todayISO } from "@/lib/dates";
@@ -43,8 +44,9 @@ export async function POST(request: NextRequest) {
 
     const note = body.text.trim();
     if (!note) throw badRequest("Type a note for the AI to turn into transactions");
-    if (note.length > MAX_INPUT_CHARS) {
-      throw badRequest(`That's a lot of text — keep it under ${MAX_INPUT_CHARS} characters`);
+    // The workspace's plan sets how long a note may be (`usage.ai.noteMaxChars`).
+    if (note.length > aiNoteMaxChars(workspace.plan)) {
+      throw badRequest(aiNoteTooLongMessage(workspace.plan));
     }
     if (body.timezone !== undefined && !isValidTimeZone(body.timezone)) {
       throw badRequest("Invalid timezone — send an IANA name like Asia/Kolkata");

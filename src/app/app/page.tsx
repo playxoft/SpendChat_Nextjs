@@ -198,7 +198,7 @@ export default async function ChatPage({
   // in every workspace, so a switch kept the feed mounted — merging the old
   // workspace's history into the new one's, along with any selection over it.
   const streamKey = `${workspace.id}:${viewProfileIds?.join(",") ?? "all"}`;
-  // AI mode's "38 of 50 AI actions left this month": started here and never
+  // AI mode's "18 of 30 AI actions left this month": started here and never
   // awaited, so the count streams in beside the composer instead of holding up
   // the tracker's first paint. One indexed sum, and only for people who can
   // use AI mode at all; a failure just shows no count.

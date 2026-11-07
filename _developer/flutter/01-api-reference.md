@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.14.0.** Every API change bumps this version and is logged
+**API spec version: 6.15.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -538,10 +538,11 @@ inside their space; `read` / `write` open it even in a space they're not in.
   "plan": "free" | "plus" | "pro",
   "readOnly": false,           // view-only — render read-only
   "readOnlyReason": null,      // 6.11.0: "extra_free" | "payment_failed" | "dispute" | null
-  "ai": { "used": 12, "limit": 50, "remaining": 38,
+  "ai": { "used": 12, "limit": 30, "remaining": 18,
           "topUpRemaining": 450,                           // 6.11.0: real top-up balance, spent after `remaining`
           "topUpExpiresAt": "2027-09-30T10:00:00.000Z",    // 6.11.0: soonest top-up expiry, or null
-          "resetsAt": "2026-11-01T00:00:00.000Z" },   // first instant of next month, UTC
+          "resetsAt": "2026-11-01T00:00:00.000Z",     // first instant of next month, UTC
+          "noteMaxChars": 1000 },                      // 6.15.0: longest /ai/parse note on this plan
   "storage": { "usedBytes": 52428800, "limitBytes": 1073741824,
                "trashBytes": 1048576,  // 6.7.0: the part of usedBytes in the trash
                "breakdown": {          // 6.13.0: where usedBytes goes (adds up to it)
@@ -1069,7 +1070,7 @@ provider hiccup, offer retry — a call that fails on our side gives its actions
 back. Neither writes any user data.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `POST /ai/parse` | `{ text, timezone?, source? }` — text ≤ 3000 chars (2000 before 6.5.0); timezone = IANA device zone (omitted → UTC); `source` = `typed` (default) \| `voice` (6.5.0; anything else → 422) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `/Category` picks a category (slash + a letter; a slash between digits is a date), `#Tag` tags it (hash + a letter, repeatable, max 10), `(parens)` → description, relative dates resolve against `timezone`. Since 6.4.0 the model **also infers** tags, so a draft may carry one the note never named — always a real workspace tag, and the user drops it in review. **Cost:** one AI action; a `source: "voice"` parse is free when the caller has an unclaimed paid transcription in this workspace from the last 15 minutes (each paid clip covers one), else charged like a typed note. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…"); 403 `plan_limit` `aiActions` |
+| `POST /ai/parse` | `{ text, timezone?, source? }` — text ≤ the plan's `usage.ai.noteMaxChars` (Free 1000 · Plus 2000 · Pro 3000, since 6.15.0; 3000 on every plan before); timezone = IANA device zone (omitted → UTC); `source` = `typed` (default) \| `voice` (6.5.0; anything else → 422) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `/Category` picks a category (slash + a letter; a slash between digits is a date), `#Tag` tags it (hash + a letter, repeatable, max 10), `(parens)` → description, relative dates resolve against `timezone`. Since 6.4.0 the model **also infers** tags, so a draft may carry one the note never named — always a real workspace tag, and the user drops it in review. **Cost:** one AI action; a `source: "voice"` parse is free when the caller has an unclaimed paid transcription in this workspace from the last 15 minutes (each paid clip covers one), else charged like a typed note. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…"); 403 `plan_limit` `aiActions` |
 | `POST /ai/transcribe` | **multipart** — recording under `audio` (+ optional `mimeType` text field fallback) + `durationMs` (6.5.0, integer ms) | 200 `data: { text }` | Voice note → transcript (≤ 2400 chars) for the composer; user fixes it, then it goes through `/ai/parse` (with `source: "voice"`) like a typed note. Audio is discarded, never stored. Accepted: webm/ogg/mp4(m4a)/mpeg/wav; ≤ 4 MB and up to **2 minutes** (cap recording at 120 s; 60 s before 6.5.0). **Cost:** one AI action per started minute of `durationMs` (clamped to 120000; 61 s → 2); omitted → charged as a full two minutes, so always send it; malformed/negative → 400. **403 `plan_limit`** `voice` off Pro, `aiActions` when the allowance is spent. Languages guided by `settings.voiceLanguages`; amounts come back as digits. **413** when the request's `Content-Length` alone exceeds 4 MB (refused before the body is read); 400 bad/empty/oversized audio or no speech — a 400 on format/size/emptiness costs **no AI action** (those checks precede the role + allowance gates), though like any request it counts once against the `ai` rate limit. 413 and 400 mean the same thing here (recording too long) and differ only in whether the client declared its size |
 
 ### Categories (scoped to the current workspace via `X-Workspace-Id`)
@@ -1260,7 +1261,8 @@ inputMode (amount_title|title_amount|combined), voiceLanguages (string[], each
 one key.
 `WorkspaceCurrencyPatch` — `{ currency (one of 59 codes), locale (2–20 chars) }`;
 both required. Admin only (`PATCH /workspaces/{id}`).
-`AiParseInput` — `{ text (1–3000 chars after trim, required — 2000 before 6.5.0),
+`AiParseInput` — `{ text (1 to the plan's `usage.ai.noteMaxChars` chars after trim —
+Free 1000, Plus 2000, Pro 3000 since 6.15.0; 3000 on every plan from 6.5.0, 2000 before),
 timezone? (IANA name, e.g. "Asia/Kolkata"), source? (typed|voice, 6.5.0) }`.
 `AttachmentMetaPatch` — `{ label? (≤ 80, nullable), kind?
 (receipt|bill|invoice|other, nullable) }`; at least one key.

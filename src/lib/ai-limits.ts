@@ -1,4 +1,4 @@
-import { VOICE } from "@/lib/plans";
+import { PERSONAL_PLANS, PLAN_LIMITS, PLAN_NAMES, VOICE, type PersonalPlan } from "@/lib/plans";
 
 /**
  * Limits shared by the AI-entry client and server. Kept out of `ai-parse.ts`
@@ -10,13 +10,47 @@ import { VOICE } from "@/lib/plans";
  */
 
 /**
- * Longest note the parser accepts, in characters. Sized so a full two-minute
- * transcript (`MAX_TRANSCRIPT_CHARS`) still fits in the composer with room to
- * add a line or fix a misheard word before sending. Cost is set by the drafts
- * that come back (capped at `MAX_DRAFTS`), not by the note's length, so the
- * extra headroom is cheap.
+ * Longest note the parser accepts on any plan, in characters — the top plan's
+ * `aiNoteChars`. Each workspace is held to its own plan's cap
+ * (`aiNoteMaxChars`) before a charge; this is the parser's own backstop.
  */
-export const MAX_INPUT_CHARS = 3000;
+export const MAX_INPUT_CHARS = Math.max(...PERSONAL_PLANS.map((p) => PLAN_LIMITS[p].aiNoteChars));
+
+/** Longest AI note `plan` accepts, in characters — what the composer counts against. */
+export function aiNoteMaxChars(plan: PersonalPlan): number {
+  return PLAN_LIMITS[plan].aiNoteChars;
+}
+
+/** The cheapest plan above `plan` whose `key` cap is higher, or null at the top. */
+function roomierPlan(plan: PersonalPlan, key: "aiNoteChars" | "aiQuestionChars"): PersonalPlan | null {
+  const current = PLAN_LIMITS[plan][key];
+  return PERSONAL_PLANS.find((p) => PLAN_LIMITS[p][key] > current) ?? null;
+}
+
+/** The cheapest plan with room for a longer AI note than `plan`, or null on the top one. */
+export function aiNoteRoomierPlan(plan: PersonalPlan): PersonalPlan | null {
+  return roomierPlan(plan, "aiNoteChars");
+}
+
+/** "Keep it under 1,000 characters — Plus takes up to 2,000." */
+function tooLongMessage(plan: PersonalPlan, key: "aiNoteChars" | "aiQuestionChars"): string {
+  const cap = PLAN_LIMITS[plan][key];
+  const next = roomierPlan(plan, key);
+  const more = next
+    ? ` — ${PLAN_NAMES[next]} takes up to ${PLAN_LIMITS[next][key].toLocaleString("en-US")}`
+    : "";
+  return `Keep it under ${cap.toLocaleString("en-US")} characters${more}.`;
+}
+
+/** The 400 for an AI note over `plan`'s cap. */
+export function aiNoteTooLongMessage(plan: PersonalPlan): string {
+  return `That's a lot of text. ${tooLongMessage(plan, "aiNoteChars")}`;
+}
+
+/** The 400 for a SpendChat AI question over `plan`'s cap. */
+export function aiQuestionTooLongMessage(plan: PersonalPlan): string {
+  return tooLongMessage(plan, "aiQuestionChars");
+}
 
 /** Most drafts a single parse may return. */
 export const MAX_DRAFTS = 50;
@@ -46,13 +80,14 @@ export const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 /**
  * Longest transcript we keep from one recording. Two minutes of speech is
  * ~300 words (~1,800 chars); this caps a runaway/looping model response with
- * some headroom for fast talkers, and stays well under `MAX_INPUT_CHARS` so the
- * text still fits the composer with room to edit.
+ * some headroom for fast talkers, and stays under the `aiNoteChars` of every
+ * plan with voice entry (a test holds it there) so the text still fits the
+ * composer with room to edit.
  */
 export const MAX_TRANSCRIPT_CHARS = 2400;
 
 /**
- * The workspace's AI actions left this month, for the "38 of 50 AI actions
+ * The workspace's AI actions left this month, for the "18 of 30 AI actions
  * left this month" line on the composers. Pages stream it from
  * `getAiAllowance`; every charged action returns a fresh one, read under the
  * charge's own locks, so the line moves after each use without another query.

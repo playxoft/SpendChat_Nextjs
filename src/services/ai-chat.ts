@@ -21,12 +21,13 @@ import {
   type ChatData,
   type ChatTxn,
 } from "@/lib/ai-chat";
-import { ASK_NEEDS_EDIT_MESSAGE, type AiActionsLeft } from "@/lib/ai-limits";
+import { ASK_NEEDS_EDIT_MESSAGE, aiQuestionTooLongMessage, type AiActionsLeft } from "@/lib/ai-limits";
 import { chargeAiChat, withAiCharge, type AiCharge } from "@/lib/ai-quota";
 import { parseOrThrow } from "@/lib/api-response";
 import { monthRange, monthStartBack } from "@/lib/dates";
-import { getAiAllowance } from "@/lib/entitlements";
-import { ApiError, forbidden, notFound } from "@/lib/errors";
+import { getAiAllowance, getWorkspacePlan } from "@/lib/entitlements";
+import { ApiError, badRequest, forbidden, notFound } from "@/lib/errors";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { describeError, logger } from "@/lib/logger";
 import { siteConfig } from "@/lib/site";
 import {
@@ -321,7 +322,8 @@ export type AskResult = {
  * Ask one question, in one of the caller's chats or (no `chatId`) a new one.
  *
  * In order, cheapest first: the question's shape (control characters already
- * stripped by the schema), the chat's ownership (404), edit access to the
+ * stripped by the schema), its length against the workspace plan's
+ * `aiQuestionChars` (400), the chat's ownership (404), edit access to the
  * workspace (403 — Ask spends the workspace's shared AI actions, so it needs
  * what the composer's AI mode needs), then how this server answers
  * (`chatAnswerMode`): with no model, a sample answer in dev, tests and beta
@@ -347,6 +349,10 @@ export async function askQuestion(
   today: string,
 ): Promise<AskResult> {
   const { chatId, question } = parseOrThrow(askAiSchema, input);
+  const plan = await getWorkspacePlan(workspace.id);
+  if (question.length > PLAN_LIMITS[plan].aiQuestionChars) {
+    throw badRequest(aiQuestionTooLongMessage(plan));
+  }
   const existing = chatId ? await ownedChat(userId, workspace.id, chatId) : null;
   if (!(await canWriteInWorkspace(userId, workspace.id))) {
     throw forbidden(ASK_NEEDS_EDIT_MESSAGE);

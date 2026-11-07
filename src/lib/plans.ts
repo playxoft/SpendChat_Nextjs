@@ -42,6 +42,15 @@ export type PlanLimits = {
   profilesPerSpace: number;
   /** For the whole workspace; resets each calendar month (UTC). */
   aiActionsPerMonth: number;
+  /**
+   * Longest note the tracker's AI mode turns into drafts, in characters. The
+   * composer counts against it ("120 / 1,000") and the parse action and
+   * `/api/v1/ai/parse` refuse a longer one. A plan with voice entry needs room
+   * for a full two-minute transcript (`MAX_TRANSCRIPT_CHARS`) plus a fix.
+   */
+  aiNoteChars: number;
+  /** Longest question one SpendChat AI message may ask, in characters. */
+  aiQuestionChars: number;
   /** Vault files + transaction attachments, for the whole workspace. */
   storageBytes: number;
   /**
@@ -76,7 +85,9 @@ export const PLAN_LIMITS: Record<PersonalPlan, PlanLimits> = {
     members: 3,
     spaces: 2,
     profilesPerSpace: 3,
-    aiActionsPerMonth: 50,
+    aiActionsPerMonth: 30,
+    aiNoteChars: 1000,
+    aiQuestionChars: 500,
     storageBytes: 1 * GB,
     budgets: { max: 5, displayUnlimited: false },
     categories: 20,
@@ -92,6 +103,8 @@ export const PLAN_LIMITS: Record<PersonalPlan, PlanLimits> = {
     spaces: 6,
     profilesPerSpace: 5,
     aiActionsPerMonth: 300,
+    aiNoteChars: 2000,
+    aiQuestionChars: 1000,
     storageBytes: 5 * GB,
     budgets: { max: 20, displayUnlimited: false },
     categories: 30,
@@ -107,6 +120,8 @@ export const PLAN_LIMITS: Record<PersonalPlan, PlanLimits> = {
     spaces: 15,
     profilesPerSpace: 10,
     aiActionsPerMonth: 1000,
+    aiNoteChars: 3000,
+    aiQuestionChars: 2000,
     storageBytes: 20 * GB,
     budgets: { max: 200, displayUnlimited: true },
     categories: 50,

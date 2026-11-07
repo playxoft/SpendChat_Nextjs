@@ -15,6 +15,7 @@ import { POST as transcribeRoute } from "@/app/api/v1/ai/transcribe/route";
 import { parseTransactionsWithAI, transcribeVoiceNoteAction } from "@/actions/transactions";
 import { aiUsageLog } from "@/db/schema";
 import { chargeAiParse, chargeVoiceTranscribe, withAiCharge } from "@/lib/ai-quota";
+import { aiNoteTooLongMessage } from "@/lib/ai-limits";
 import { getAiAllowance } from "@/lib/entitlements";
 import { PLAN_LIMITS } from "@/lib/plans";
 import { resetRateLimitState } from "@/lib/rate-limit";
@@ -177,7 +178,13 @@ describe("monthly AI allowance", () => {
     expect(res.status).toBe(403);
     const error = await errorOf(res);
     expect(error.code).toBe("plan_limit");
-    expect(error.details).toMatchObject({ limit: "aiActions", plan: "free", max: 50, used: 50, upgradeTo: "plus" });
+    expect(error.details).toMatchObject({
+      limit: "aiActions",
+      plan: "free",
+      max: PLAN_LIMITS.free.aiActionsPerMonth,
+      used: PLAN_LIMITS.free.aiActionsPerMonth,
+      upgradeTo: "plus",
+    });
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(await ledger("a")).toHaveLength(1);
   });
@@ -186,7 +193,7 @@ describe("monthly AI allowance", () => {
     const fetchSpy = stubGemini();
     signInAs("a");
     await bootstrapUser("a");
-    await spend("a", 50, { workspaceId: await workspaceIdOf("a"), plan: "free" });
+    await spend("a", PLAN_LIMITS.free.aiActionsPerMonth, { workspaceId: await workspaceIdOf("a"), plan: "free" });
 
     const res = await parseTransactionsWithAI("200 fruits");
     expect(res).toMatchObject({ ok: false, code: "plan_limit", details: { limit: "aiActions" } });
@@ -312,6 +319,63 @@ describe("monthly AI allowance", () => {
     expect(statuses.filter((s) => s !== 200).every((s) => s === 403 || s === 429)).toBe(true);
     expect((await getAiAllowance(W)).used).toBe(PLAN_LIMITS.free.aiActionsPerMonth);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("AI note length per plan", () => {
+  beforeEach(() => configureModels());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  // A 1,000-character note of real-looking entries ("200 fruits, 200 fruits, …").
+  const noteOf = (length: number) => "200 fruits, ".repeat(Math.ceil(length / 12)).slice(0, length);
+
+  it("holds each workspace to its plan's cap — refused before any charge or provider call", async () => {
+    const fetchSpy = stubGemini();
+    signInAs("a");
+    await bootstrapUser("a");
+    const W = await workspaceIdOf("a");
+
+    expect((await parse({ text: noteOf(PLAN_LIMITS.free.aiNoteChars) })).status).toBe(200);
+    const over = await parse({ text: noteOf(PLAN_LIMITS.free.aiNoteChars + 1) });
+    expect(over.status).toBe(400);
+    expect((await errorOf(over)).message).toBe(aiNoteTooLongMessage("free"));
+    expect(aiNoteTooLongMessage("free")).toContain("Plus takes up to 2,000");
+    expect(await ledger("a")).toHaveLength(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    // The same note fits once the plan takes more; Pro's cap is the ceiling.
+    await setWorkspacePlan(W, "pro");
+    expect((await parse({ text: noteOf(PLAN_LIMITS.free.aiNoteChars + 1) })).status).toBe(200);
+    expect((await parse({ text: noteOf(PLAN_LIMITS.pro.aiNoteChars) })).status).toBe(200);
+    const overPro = await parse({ text: noteOf(PLAN_LIMITS.pro.aiNoteChars + 1) });
+    expect(overPro.status).toBe(400);
+    expect((await errorOf(overPro)).message).not.toContain("takes up to");
+  });
+
+  it("refuses the server action at the same cap", async () => {
+    const fetchSpy = stubGemini();
+    signInAs("a");
+    await bootstrapUser("a");
+    await setWorkspacePlan(await workspaceIdOf("a"), "plus");
+
+    const res = await parseTransactionsWithAI(noteOf(PLAN_LIMITS.plus.aiNoteChars + 1));
+    expect(res).toMatchObject({ ok: false, code: "bad_request", error: aiNoteTooLongMessage("plus") });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await ledger("a")).toEqual([]);
+    expect(await parseTransactionsWithAI(noteOf(PLAN_LIMITS.plus.aiNoteChars))).toMatchObject({ ok: true });
+  });
+
+  it("reports the cap on GET /usage", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    await setWorkspacePlan(await workspaceIdOf("a"), "plus");
+    const { GET } = await import("@/app/api/v1/usage/route");
+    const res = await GET(apiReq("/api/v1/usage"));
+    const body = (await res.json()) as { data: { ai: { noteMaxChars: number } } };
+    expect(body.data.ai.noteMaxChars).toBe(PLAN_LIMITS.plus.aiNoteChars);
   });
 });
 

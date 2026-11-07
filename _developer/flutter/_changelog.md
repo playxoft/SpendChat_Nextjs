@@ -19,6 +19,23 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.15.0 — 2026-11-07
+
+**AI note length is per plan.**
+
+- `POST /ai/parse` takes a note up to the workspace plan's cap: **Free 1,000,
+  Plus 2,000, Pro 3,000** characters (after trim). Until now it was 3,000 on
+  every plan. A longer note is the same 400 as before; its message names the
+  cap and the plan that takes more ("That's a lot of text. Keep it under 1,000
+  characters — Plus takes up to 2,000.").
+- `GET /usage` → `ai` gains **`noteMaxChars`**: that cap, for this workspace.
+- Free's monthly AI allowance is now **30** actions (was 50). `ai.limit` already
+  reports it; nothing in the shape changes.
+
+**Flutter impact:** optional — cap the AI note field at `usage.ai.noteMaxChars`
+and show a "120 / 1,000" counter against it (the web composer does). An app
+that doesn't still works: a note over the cap gets the 400 it already handles.
+
 ## 6.14.0 — 2026-10-22
 
 Additive. **Split: a person's email is optional.**

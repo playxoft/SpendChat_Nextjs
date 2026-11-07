@@ -243,10 +243,10 @@ describe("a plan's life: activate → renew → upgrade → downgrade at renewal
     const W = await ownWorkspace();
     await db()
       .insert(aiUsageLog)
-      .values(Array.from({ length: 40 }, () => ({ userId: uid("own"), workspaceId: W, kind: "transaction_parse", units: 1, ownerId: uid("own"), plan: "free" as const })));
-    expect((await getAiAllowance(W)).remaining).toBe(PLAN_LIMITS.free.aiActionsPerMonth - 40);
+      .values(Array.from({ length: 20 }, () => ({ userId: uid("own"), workspaceId: W, kind: "transaction_parse", units: 1, ownerId: uid("own"), plan: "free" as const })));
+    expect((await getAiAllowance(W)).remaining).toBe(PLAN_LIMITS.free.aiActionsPerMonth - 20);
     await activePlan(W, { plan: "plus" });
-    expect((await getAiAllowance(W)).remaining).toBe(PLAN_LIMITS.plus.aiActionsPerMonth - 40);
+    expect((await getAiAllowance(W)).remaining).toBe(PLAN_LIMITS.plus.aiActionsPerMonth - 20);
   });
 });
 

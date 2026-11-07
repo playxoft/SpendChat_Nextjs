@@ -14,9 +14,27 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.14.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.15.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.51.0] — 2026-11-07
+
+### Added
+- **A character count in the AI note box.** The tracker's AI mode shows "120 / 1,000" in the
+  box's bottom corner: quiet at first, amber in the last tenth, red at the cap, where it also
+  names the plan that takes a longer note.
+
+### Changed
+- **How long an AI note or question can be now depends on the plan.** An AI note takes up to
+  1,000 characters on Free, 2,000 on Plus and 3,000 on Pro (it was 3,000 on every plan). A
+  SpendChat AI question takes up to 500, 1,000 and 2,000 (it was 1,000 on every plan). Both
+  boxes stop typing at the plan's cap, the server refuses anything longer, and the pricing
+  comparison lists both. A note can still hold many entries, so most people never reach it.
+- **Free includes 30 AI actions a month** (was 50). A Free workspace that has already used
+  30 or more this month is out until the month refills.
+- Mobile API **6.15.0**: `POST /ai/parse` holds a note to the plan's cap, and `GET /usage`
+  reports it as `ai.noteMaxChars`.
 
 ## [0.50.1] — 2026-11-07
 

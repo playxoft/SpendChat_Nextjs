@@ -30,7 +30,7 @@ import type { AccountSummary } from "./account-controls";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { WorkspaceSubmenu } from "./workspace-switcher";
 
-/** "50 AI actions a month · 1 GB" — what this workspace's plan gives, on one line. */
+/** "30 AI actions a month · 1 GB" — what this workspace's plan gives, on one line. */
 function planLine(plan: PersonalPlan): string {
   const limits = PLAN_LIMITS[plan];
   return `${count(limits.aiActionsPerMonth)} AI actions a month · ${formatPlanStorage(limits.storageBytes)}`;
