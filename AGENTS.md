@@ -136,7 +136,7 @@ Authentication, secrets via Doppler.
   before the URL is returned, and a top-up is granted only when the amount received ≥ that and the
   workspace matches (**A3** — top-up checkouts take no discount code; plans are granted by product).
   **The currency is the request country's** (`checkoutCurrency`, by `cf-ipcountry`): pricing pages
-  show it as a label and checkout pins it — a currency picker exists only in `next dev`.
+  price in it (no currency chip) and checkout pins it — a currency picker exists only in `next dev`.
   One live subscription per workspace — a paid workspace changes plan (`changePlan`: up now and
   prorated, down at renewal, C3) instead of a second checkout. **A plan belongs to its buyer:**
   each checkout is a new provider customer; only the buyer gets the portal, invoice PDFs and

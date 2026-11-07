@@ -26,17 +26,22 @@ export function Breadcrumbs({
     <nav aria-label="Breadcrumb" className="mb-6">
       <ol
         className={cn(
-          "flex flex-wrap items-center gap-1 text-sm text-muted-foreground",
+          // One line: on a phone a long page title used to wrap onto lines of
+          // its own, a second heading above the real one. It truncates instead.
+          "flex min-w-0 items-center gap-1 text-sm text-muted-foreground",
           align === "center" && "justify-center",
         )}
       >
         {trail.map((crumb, i) => {
           const isLast = i === trail.length - 1;
           return (
-            <li key={crumb.path} className="flex items-center gap-1">
+            <li
+              key={crumb.path}
+              className={cn("flex items-center gap-1", isLast ? "min-w-0" : "shrink-0")}
+            >
               {i > 0 && <ChevronRight className="size-3.5 shrink-0" aria-hidden />}
               {isLast ? (
-                <span aria-current="page" className="text-foreground">
+                <span aria-current="page" className="truncate text-foreground">
                   {crumb.name}
                 </span>
               ) : (

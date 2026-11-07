@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -115,6 +116,8 @@ type Method = "chat" | "ai" | "voice" | "bulk";
 const METHODS: {
   id: Method;
   label: string;
+  /** The phone layout's tab — short enough for four across a 320px screen. */
+  tab: string;
   icon: typeof MessageSquare;
   slug: string;
   heading: string;
@@ -124,6 +127,7 @@ const METHODS: {
 }[] = [
   {
     id: "chat",
+    tab: "Chat",
     label: "Chat",
     icon: MessageSquare,
     slug: "chat-expense-tracker",
@@ -134,6 +138,7 @@ const METHODS: {
   },
   {
     id: "ai",
+    tab: "AI",
     label: "AI",
     icon: Sparkles,
     slug: "ai-expense-tracker",
@@ -144,6 +149,7 @@ const METHODS: {
   },
   {
     id: "voice",
+    tab: "Voice",
     label: "Voice",
     icon: Mic,
     slug: "voice-expense-tracker",
@@ -154,6 +160,7 @@ const METHODS: {
   },
   {
     id: "bulk",
+    tab: "Paste",
     label: "Bulk paste",
     icon: ListPlus,
     slug: "bulk-add",
@@ -222,6 +229,34 @@ const ROW_STAGGER_MS = 150;
 const INTERIM_MS = 520;
 const LEVEL_TICK_MS = 90;
 const BULK_TODAY = "2026-08-21";
+
+/**
+ * Below this (Tailwind's `lg`) the section isn't a scroll story at all. On a
+ * phone, pinning the heading and the widget left the widget a sliver — the
+ * feed it exists to show was squeezed out entirely — with the copy crawling
+ * under it. There it's a plain stack instead: four tabs, the widget at a
+ * height it can actually be read at, and the chosen method's copy under it.
+ * The script moves through the four on its own (`ADVANCE_MS` after each one
+ * lands) until the reader picks a tab.
+ */
+const WIDE_QUERY = "(min-width: 64rem)";
+const ADVANCE_MS = 2600;
+
+function subscribeWide(onChange: () => void): () => void {
+  const query = window.matchMedia(WIDE_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+/** Wide enough for the pinned, side-by-side story. Layout is CSS either way;
+ * this only picks which behaviour (scroll-driven or tabs) runs. */
+function useWide(): boolean {
+  return useSyncExternalStore(
+    subscribeWide,
+    () => window.matchMedia(WIDE_QUERY).matches,
+    () => true,
+  );
+}
 
 /**
  * Seeded in USD minor units; converted per visitor by `demoAmountInput`.
@@ -322,7 +357,10 @@ function bulkRowsFor(money: DemoMoneyFormat): string[] {
 export function EntryMethods({ header }: { header: ReactNode }) {
   const money = useDemoMoney();
   const reduced = useReducedMotion();
+  const wide = useWide();
   const feed = useDemoFeed("Personal");
+  // The phone layout's auto-advance, until the reader picks a tab themselves.
+  const [auto, setAuto] = useState(true);
 
   const [active, setActive] = useState<Method>("chat");
   const [stage, setStage] = useState<Stage>("idle");
@@ -590,6 +628,32 @@ export function EntryMethods({ header }: { header: ReactNode }) {
     autoPlay: false,
   });
 
+  /** Switch to a method and play it from the top (the phone layout's tabs). */
+  const choose = useCallback(
+    (id: Method) => {
+      methodRef.current = id;
+      startedRef.current = true;
+      setActive(id);
+      clearTimers();
+      run();
+    },
+    [clearTimers, run],
+  );
+
+  // Phone layout: once a method's beat has landed, move on to the next, round
+  // and round, until the reader takes over by tapping a tab. Not while the
+  // section is off screen (the scroll pass clears `startedRef` then), and not
+  // with reduced motion, where every beat lands at once.
+  useEffect(() => {
+    if (wide || !auto || reduced || stage !== "saved") return;
+    const timer = window.setTimeout(() => {
+      if (!startedRef.current) return;
+      const i = METHODS.findIndex((m) => m.id === methodRef.current);
+      choose(METHODS[(i + 1) % METHODS.length].id);
+    }, ADVANCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [auto, choose, reduced, stage, wide]);
+
   /**
    * Measure the pinned heading. `ResizeObserver` fires once as soon as it
    * observes, so this needs no priming call — which is just as well, since
@@ -642,6 +706,27 @@ export function EntryMethods({ header }: { header: ReactNode }) {
       const unpinned = vh <= UNPIN_BELOW_PX;
       const copyBox = copy.getBoundingClientRect();
       const widgetBox = widget.getBoundingClientRect();
+
+      // Phone layout: nothing pinned and nothing faded — the tabs pick the
+      // method. This pass only starts the script as the widget comes into view
+      // and stops it once it has gone.
+      if (!wide) {
+        if (widgetBox.bottom < 0 || widgetBox.top > vh * 0.8) {
+          startedRef.current = false;
+          clearTimers();
+          return;
+        }
+        blocks.forEach((el) => {
+          if (el.style.opacity !== "") el.style.opacity = "";
+        });
+        setLastTop((current) => (current === null ? current : null));
+        if (!startedRef.current) {
+          startedRef.current = true;
+          clearTimers();
+          run();
+        }
+        return;
+      }
 
       // Off screen: nothing to fade, and nothing to play. A homepage animation
       // that runs while it's still three sections below the fold has finished
@@ -745,7 +830,7 @@ export function EntryMethods({ header }: { header: ReactNode }) {
       window.removeEventListener("resize", schedule);
       if (frame !== 0) window.cancelAnimationFrame(frame);
     };
-  }, [clearTimers, pinTop, pinnedHeight, reduced, run]);
+  }, [clearTimers, pinTop, pinnedHeight, reduced, run, wide]);
 
   // Keep the newest bubble in view, inside the widget's own scroller.
   useEffect(() => {
@@ -842,7 +927,8 @@ export function EntryMethods({ header }: { header: ReactNode }) {
         // widget with its link under the fold. Static, the section is just a
         // heading, a widget and four blocks, which is what it degrades to
         // without JS anyway.
-        className="pointer-events-none sticky top-20 z-10 col-start-1 col-end-2 row-start-1 self-start [@media(max-height:44rem)]:static lg:col-end-3"
+        // Below `lg` it doesn't pin at all (see `WIDE_QUERY`).
+        className="pointer-events-none z-10 col-start-1 col-end-2 row-start-1 self-start lg:sticky lg:top-20 lg:col-end-3 lg:[@media(max-height:44rem)]:static"
       >
         {/*
           Opaque, and full width rather than the width of the text, because the
@@ -851,6 +937,35 @@ export function EntryMethods({ header }: { header: ReactNode }) {
         */}
         <div ref={headerRef} className="pointer-events-auto bg-background pb-6">
           <div className="mx-auto max-w-2xl text-center">{header}</div>
+        </div>
+
+        {/* The phone layout's way between the four (see `WIDE_QUERY`). */}
+        <div
+          role="group"
+          aria-label="Ways to add a transaction"
+          className="pointer-events-auto mx-auto mb-4 grid max-w-md grid-cols-4 gap-1 rounded-full border bg-muted/40 p-1 lg:hidden"
+        >
+          {METHODS.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              aria-pressed={m.id === active}
+              onClick={() => {
+                setAuto(false);
+                choose(m.id);
+              }}
+              className={cn(
+                "flex min-w-0 items-center justify-center gap-1.5 rounded-full px-2 py-2 text-xs font-medium transition-colors",
+                m.id === active
+                  ? "bg-foreground text-background"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {/* Icons go on the narrowest phones, so the words fit. */}
+              <m.icon className="size-3.5 shrink-0 max-[22.5rem]:hidden" />
+              <span className="truncate">{m.tab}</span>
+            </button>
+          ))}
         </div>
 
         <div className="lg:grid lg:grid-cols-2 lg:gap-12">
@@ -887,7 +1002,9 @@ export function EntryMethods({ header }: { header: ReactNode }) {
               // isn't on screen. The lower bound keeps it present; the
               // `max-height` rules below unpin the section at the same size, so
               // the two together degrade it to a plain stacked read.
-              className="h-[clamp(11rem,calc(100svh_-_var(--pin-top,9rem)_-_15rem),20rem)] lg:h-[clamp(20rem,calc(100svh_-_var(--pin-top,15rem)_-_4rem),38rem)]"
+              // Phones: a fixed height that leaves the feed room to show what
+              // each method produced.
+              className="h-[27rem] lg:h-[clamp(20rem,calc(100svh_-_var(--pin-top,15rem)_-_4rem),38rem)]"
               header={
                 <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
                   <DemoSummaryBar
@@ -897,7 +1014,10 @@ export function EntryMethods({ header }: { header: ReactNode }) {
                     expenseMinor={feed.totals.expenseMinor}
                     className="min-w-0 flex-1"
                   />
-                  <DemoProfilePicker profile={feed.profile} onChange={feed.setProfile} />
+                  {/* Not on a phone, where it pushed the totals onto three lines. */}
+                  <div className="hidden sm:block">
+                    <DemoProfilePicker profile={feed.profile} onChange={feed.setProfile} />
+                  </div>
                 </div>
               }
               bodyClassName="overflow-hidden"
@@ -1111,7 +1231,8 @@ export function EntryMethods({ header }: { header: ReactNode }) {
         // The padding clears the pinned block. Unpinned (see the `max-height`
         // rule above) there is nothing overhead to clear, and keeping it would
         // open a full widget's worth of blank space above the first method.
-        className="col-start-1 col-end-2 row-start-1 pt-[var(--pinned-h,26rem)] [@media(max-height:44rem)]:pt-0 lg:pt-[calc(var(--pin-top,15rem)_-_5rem)]"
+        // Below `lg` it simply follows the widget, in the next row.
+        className="col-start-1 col-end-2 row-start-2 lg:row-start-1 lg:pt-[calc(var(--pin-top,15rem)_-_5rem)] lg:[@media(max-height:44rem)]:pt-0"
       >
           {METHODS.map((m, i) => {
             const target = getFeature(m.slug);
@@ -1128,16 +1249,18 @@ export function EntryMethods({ header }: { header: ReactNode }) {
                 // holds for the length of the tail below it and then leaves
                 // with everything else.
                 style={isLast && lastTop !== null ? { top: lastTop } : undefined}
+                // Below `lg`, only the chosen method's copy shows.
                 className={cn(
-                  "flex min-h-[62vh] flex-col justify-center lg:min-h-[70vh]",
+                  "flex-col lg:flex lg:min-h-[70vh] lg:justify-center",
+                  m.id === active ? "flex" : "hidden",
                   isLast && lastTop !== null && "sticky",
                 )}
               >
-                <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-foreground bg-foreground px-3 py-1 text-xs text-background">
+                <span className="hidden w-fit items-center gap-1.5 rounded-full border border-foreground bg-foreground px-3 py-1 text-xs text-background lg:inline-flex">
                   <m.icon className="size-3.5" />
                   {m.label}
                 </span>
-                <h3 className="mt-4 text-2xl font-medium tracking-tight sm:text-3xl">
+                <h3 className="text-2xl font-medium tracking-tight sm:text-3xl lg:mt-4">
                   {m.heading}
                 </h3>
                 <p className="mt-3 leading-relaxed text-muted-foreground">{m.body}</p>
@@ -1165,7 +1288,7 @@ export function EntryMethods({ header }: { header: ReactNode }) {
             purpose: long enough to watch the import land, not so long that the
             section overstays after there's nothing left to read.
           */}
-          <div aria-hidden className="h-[35vh]" />
+          <div aria-hidden className="hidden h-[35vh] lg:block" />
       </div>
     </div>
   );

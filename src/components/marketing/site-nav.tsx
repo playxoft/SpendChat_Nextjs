@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useId, useState, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu } from "lucide-react";
+import { ChevronDown, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import {
@@ -111,6 +111,43 @@ const KEY_CLAIMING_ROLES = '[role="application"],[role="combobox"]';
  * a section for a page that doesn't exist. The 404 passes `false` and nothing
  * is marked, on the server and on the client alike.
  */
+/**
+ * A mobile-menu entry with pages under it (Features, Tools): the section's own
+ * link, and a chevron that unfolds its pages. Folded until asked for.
+ */
+function FoldedPages({
+  label,
+  link,
+  children,
+}: {
+  label: string;
+  link: ReactNode;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <>
+      <div className="flex items-center gap-1">
+        {link}
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={id}
+          aria-label={`${open ? "Hide" : "Show"} ${label} pages`}
+          onClick={() => setOpen((value) => !value)}
+          className="rounded-lg p-3 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
+        </button>
+      </div>
+      <div id={id} hidden={!open}>
+        {children}
+      </div>
+    </>
+  );
+}
+
 export function SiteNav({
   markActive = true,
 }: {
@@ -278,33 +315,39 @@ export function SiteNav({
               <nav className="scrollbar-slim flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-3">
                 {marketingNav.map((item) => {
                   const current = markActive ? navCurrent(pathname, item.href) : undefined;
-                  return (
-                    <div key={item.href} className="contents">
-                      <SheetClose asChild>
-                        <Link
-                          href={item.href}
-                          aria-current={current}
-                          onClick={() =>
-                            trackEvent("nav_link_click", { label: item.label, location: "mobile" })
-                          }
-                          className={cn(
-                            "rounded-lg px-3 py-2.5 text-base font-medium transition-colors hover:bg-accent hover:text-foreground",
-                            current ? "bg-accent text-foreground" : "text-muted-foreground",
-                          )}
-                        >
-                          {item.label}
-                        </Link>
-                      </SheetClose>
-                      {/* Feature pages listed inline under Features, so they're
-                          one tap away on mobile. Inside the sheet's portal, so
-                          this renders only once the menu is open — see
-                          `FeaturesMenuMobile`. */}
-                      {item.href === "/features" && (
-                        <FeaturesMenuMobile onNavigate={() => setOpen(false)} />
-                      )}
-                      {item.href === "/tools" && (
-                        <ToolsMenuMobile onNavigate={() => setOpen(false)} />
-                      )}
+                  const link = (
+                    <SheetClose asChild>
+                      <Link
+                        href={item.href}
+                        aria-current={current}
+                        onClick={() =>
+                          trackEvent("nav_link_click", { label: item.label, location: "mobile" })
+                        }
+                        className={cn(
+                          "flex-1 rounded-lg px-3 py-2.5 text-base font-medium transition-colors hover:bg-accent hover:text-foreground",
+                          current ? "bg-accent text-foreground" : "text-muted-foreground",
+                        )}
+                      >
+                        {item.label}
+                      </Link>
+                    </SheetClose>
+                  );
+                  // Features and Tools carry every one of their pages, folded
+                  // away until asked for — open, the list ran past the screen.
+                  // Inside the sheet's portal, so each opening starts folded.
+                  const pages =
+                    item.href === "/features" ? (
+                      <FeaturesMenuMobile onNavigate={() => setOpen(false)} />
+                    ) : item.href === "/tools" ? (
+                      <ToolsMenuMobile onNavigate={() => setOpen(false)} />
+                    ) : null;
+                  return pages ? (
+                    <FoldedPages key={item.href} label={item.label} link={link}>
+                      {pages}
+                    </FoldedPages>
+                  ) : (
+                    <div key={item.href} className="flex">
+                      {link}
                     </div>
                   );
                 })}

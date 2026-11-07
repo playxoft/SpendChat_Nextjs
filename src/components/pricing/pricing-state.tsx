@@ -51,8 +51,8 @@ export function PricingStateProvider({
   upi?: boolean;
   /**
    * What the currency control offers — `checkoutCurrencies(country)`, the
-   * prices checkout will charge: the visitor's own currency (a label, not a
-   * picker), or every currency in local development.
+   * prices checkout will charge: the visitor's own currency (no control at
+   * all — the prices already say it), or every currency in local development.
    */
   currencies: Currency[];
   children: ReactNode;
@@ -93,7 +93,10 @@ export function PricingControls({ className }: { className?: string }) {
 
   return (
     // Period centred, currency in the right corner; the empty left cell keeps
-    // the period selector on the page's centre line.
+    // the period selector on the page's centre line. The currency control
+    // exists only where there's a choice — every currency in local development.
+    // Anywhere else the prices are in the visitor's own currency already, and
+    // a chip repeating it next to the toggle only crowded the row.
     <div
       className={cn(
         "flex w-full flex-wrap items-center justify-center gap-3 md:grid md:grid-cols-[1fr_auto_1fr]",
@@ -130,18 +133,7 @@ export function PricingControls({ className }: { className?: string }) {
           ))}
         </SelectContent>
       </Select>
-      ) : (
-        // One currency — the visitor's country's — so it's a label, not a picker.
-        <span
-          title="Priced for the country you're in"
-          className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border px-3 text-sm font-medium text-muted-foreground sm:px-4 md:justify-self-end"
-        >
-          <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-muted px-1.5 font-semibold text-foreground">
-            {currencySymbol(currency)}
-          </span>
-          {currency}
-        </span>
-      )}
+      ) : null}
     </div>
   );
 }
