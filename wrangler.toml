@@ -23,6 +23,12 @@ keep_vars = true
 # "__name is not defined" before applying the stored theme on every page.
 keep_names = false
 
+# Don't upload source maps. Wrangler 4.150 started uploading them by default
+# (before, only `upload_source_maps = true` did). Ours would only map back into
+# OpenNext's bundled output — a ~42 MiB file on every deploy that makes no stack
+# trace any more readable. Inheritable, so this covers every env.
+upload_source_maps = false
+
 # The daily trash purge (03:17 UTC — off the hour, away from everyone else's
 # crons). `scheduled()` in worker.ts runs it through the app's own fetch
 # handler on a token-guarded internal route. `triggers` *is* inheritable, so
