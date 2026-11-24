@@ -106,132 +106,136 @@ function AttachmentPreview({
   return (
     <DialogPrimitive.Root open={item !== null} onOpenChange={(o) => !o && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/90 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0" />
-        {/* Full-screen Google-Drive-style chrome: a slim top bar with the file
-            name and icon actions, then the document filling the rest. */}
-        <DialogPrimitive.Content
-          aria-describedby={undefined}
-          className="fixed inset-0 z-50 flex flex-col outline-none duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
-          // Escape in a details field with unsaved typing undoes the typing, not the preview.
-          onEscapeKeyDown={(e) => {
-            const target = e.target as HTMLElement | null;
-            if (target?.matches("input, textarea") && target.closest("[data-viewer-details] [data-dirty]")) {
-              e.preventDefault();
-            }
-          }}
-        >
-          {item ? (
-            <>
-              <DialogPrimitive.Title className="sr-only">{name}</DialogPrimitive.Title>
+        {/* The viewer inside its backdrop — one element in <body>, so a
+            password manager reordering <body> can't put the backdrop over it
+            (see `DialogContent` in components/ui/dialog.tsx). */}
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/90 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0">
+          {/* Full-screen Google-Drive-style chrome: a slim top bar with the file
+              name and icon actions, then the document filling the rest. */}
+          <DialogPrimitive.Content
+            aria-describedby={undefined}
+            className="fixed inset-0 z-50 flex flex-col outline-none duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
+            // Escape in a details field with unsaved typing undoes the typing, not the preview.
+            onEscapeKeyDown={(e) => {
+              const target = e.target as HTMLElement | null;
+              if (target?.matches("input, textarea") && target.closest("[data-viewer-details] [data-dirty]")) {
+                e.preventDefault();
+              }
+            }}
+          >
+            {item ? (
+              <>
+                <DialogPrimitive.Title className="sr-only">{name}</DialogPrimitive.Title>
 
-              <div className="flex shrink-0 items-center gap-3 px-3 py-2 sm:px-4">
-                <div className="min-w-0 flex-1 text-white">
-                  <div className="truncate text-sm font-medium">{name}</div>
-                  <div className="truncate text-xs text-white/60">
-                    {fileTypeLabel(item.contentType)}
+                <div className="flex shrink-0 items-center gap-3 px-3 py-2 sm:px-4">
+                  <div className="min-w-0 flex-1 text-white">
+                    <div className="truncate text-sm font-medium">{name}</div>
+                    <div className="truncate text-xs text-white/60">
+                      {fileTypeLabel(item.contentType)}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    {details ? (
+                      <button
+                        type="button"
+                        aria-label="Details"
+                        title="Details"
+                        aria-pressed={detailsOpen ?? undefined}
+                        // From "as the screen suits", the first click flips what the screen showed.
+                        onClick={() =>
+                          setDetailsOpen((open) => !(open ?? window.matchMedia("(min-width: 768px)").matches))
+                        }
+                        className={cn(ICON_BTN, detailsOpen && "bg-white/15 text-white")}
+                      >
+                        <Info className="size-5" aria-hidden />
+                      </button>
+                    ) : null}
+                    <a
+                      href={viewUrlFor(item)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Open in new tab"
+                      title="Open in new tab"
+                      className={ICON_BTN}
+                    >
+                      <ExternalLink className="size-5" aria-hidden />
+                    </a>
+                    <a
+                      href={downloadUrlFor(item)}
+                      aria-label="Download"
+                      title="Download"
+                      className={ICON_BTN}
+                    >
+                      <Download className="size-5" aria-hidden />
+                    </a>
+                    <DialogPrimitive.Close aria-label="Close" title="Close" className={ICON_BTN}>
+                      <X className="size-5" aria-hidden />
+                    </DialogPrimitive.Close>
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-0.5">
-                  {details ? (
-                    <button
-                      type="button"
-                      aria-label="Details"
-                      title="Details"
-                      aria-pressed={detailsOpen ?? undefined}
-                      // From "as the screen suits", the first click flips what the screen showed.
-                      onClick={() =>
-                        setDetailsOpen((open) => !(open ?? window.matchMedia("(min-width: 768px)").matches))
-                      }
-                      className={cn(ICON_BTN, detailsOpen && "bg-white/15 text-white")}
-                    >
-                      <Info className="size-5" aria-hidden />
-                    </button>
+
+                <div className="relative flex min-h-0 flex-1">
+                <div className="relative min-w-0 flex-1">
+                  {embeds && loading ? (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Loader2 className="size-9 animate-spin text-white/70" aria-label="Loading" />
+                    </div>
                   ) : null}
-                  <a
-                    href={viewUrlFor(item)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label="Open in new tab"
-                    title="Open in new tab"
-                    className={ICON_BTN}
-                  >
-                    <ExternalLink className="size-5" aria-hidden />
-                  </a>
-                  <a
-                    href={downloadUrlFor(item)}
-                    aria-label="Download"
-                    title="Download"
-                    className={ICON_BTN}
-                  >
-                    <Download className="size-5" aria-hidden />
-                  </a>
-                  <DialogPrimitive.Close aria-label="Close" title="Close" className={ICON_BTN}>
-                    <X className="size-5" aria-hidden />
-                  </DialogPrimitive.Close>
-                </div>
-              </div>
 
-              <div className="relative flex min-h-0 flex-1">
-              <div className="relative min-w-0 flex-1">
-                {embeds && loading ? (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Loader2 className="size-9 animate-spin text-white/70" aria-label="Loading" />
-                  </div>
-                ) : null}
-
-                {isImage ? (
-                  <div className="flex size-full items-center justify-center p-4">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                  {isImage ? (
+                    <div className="flex size-full items-center justify-center p-4">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={viewUrlFor(item)}
+                        alt={name}
+                        onLoad={() => setLoading(false)}
+                        onError={() => setLoading(false)}
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    </div>
+                  ) : isPdf ? (
+                    <iframe
                       src={viewUrlFor(item)}
-                      alt={name}
+                      title={name}
                       onLoad={() => setLoading(false)}
-                      onError={() => setLoading(false)}
-                      className="max-h-full max-w-full object-contain"
+                      className="size-full border-0"
                     />
-                  </div>
-                ) : isPdf ? (
-                  <iframe
-                    src={viewUrlFor(item)}
-                    title={name}
-                    onLoad={() => setLoading(false)}
-                    className="size-full border-0"
-                  />
-                ) : isVideo || isAudio ? (
-                  <MediaPreview key={item.id} item={item} kind={isVideo ? "video" : "audio"} />
-                ) : (
-                  <DataFilePreview key={item.id} item={item} />
-                )}
-              </div>
-              {details ? (
-                <aside
-                  data-viewer-details
-                  aria-label="Details"
-                  className={cn(
-                    // A light pane over the dark backdrop, as in Google Drive;
-                    // over the file on a phone, beside it from md up.
-                    "absolute inset-y-0 right-0 z-10 w-full max-w-sm flex-col overflow-y-auto border-l bg-background p-4 text-foreground md:static md:w-80 md:max-w-none md:shrink-0",
-                    detailsOpen === null ? "hidden md:flex" : detailsOpen ? "flex" : "hidden",
+                  ) : isVideo || isAudio ? (
+                    <MediaPreview key={item.id} item={item} kind={isVideo ? "video" : "audio"} />
+                  ) : (
+                    <DataFilePreview key={item.id} item={item} />
                   )}
-                >
-                  <div className="mb-3 flex items-center justify-between gap-2">
-                    <h2 className="text-sm font-semibold">Details</h2>
-                    <button
-                      type="button"
-                      aria-label="Hide details"
-                      onClick={() => setDetailsOpen(false)}
-                      className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                    >
-                      <X className="size-4" aria-hidden />
-                    </button>
-                  </div>
-                  {details}
-                </aside>
-              ) : null}
-              </div>
-            </>
-          ) : null}
-        </DialogPrimitive.Content>
+                </div>
+                {details ? (
+                  <aside
+                    data-viewer-details
+                    aria-label="Details"
+                    className={cn(
+                      // A light pane over the dark backdrop, as in Google Drive;
+                      // over the file on a phone, beside it from md up.
+                      "absolute inset-y-0 right-0 z-10 w-full max-w-sm flex-col overflow-y-auto border-l bg-background p-4 text-foreground md:static md:w-80 md:max-w-none md:shrink-0",
+                      detailsOpen === null ? "hidden md:flex" : detailsOpen ? "flex" : "hidden",
+                    )}
+                  >
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <h2 className="text-sm font-semibold">Details</h2>
+                      <button
+                        type="button"
+                        aria-label="Hide details"
+                        onClick={() => setDetailsOpen(false)}
+                        className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <X className="size-4" aria-hidden />
+                      </button>
+                    </div>
+                    {details}
+                  </aside>
+                ) : null}
+                </div>
+              </>
+            ) : null}
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Overlay>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
   );

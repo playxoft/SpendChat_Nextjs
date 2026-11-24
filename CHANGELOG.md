@@ -18,6 +18,22 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.51.1] — 2026-11-24
+
+### Fixed
+- **Popups no longer freeze, blurred, when a password manager is installed.** With Bitwarden's
+  autofill menu on the page (typing a password at sign-up, for one), a popup could open blurred
+  and stop responding until a reload: the sign-up terms box with the 13+ tick, the welcome
+  questions after it, and any other dialog, confirmation, side panel or file preview. Each
+  popup and its dimmed backdrop are now one piece, so the backdrop always stays behind it.
+
+### Changed
+- **Switch workspace from the left menu.** The workspace's name at the top of the left menu
+  now has a `>`. Press it to see every workspace and switch, make a new one, or open Workspace
+  settings. On a phone it's at the top of the spaces and profiles sheet. It's no longer in
+  the account menu (your picture, top right), which now holds just your plan, Settings, Trash,
+  the tour and Sign out. `g` still opens the quick picker from anywhere.
+
 ## [0.51.0] — 2026-11-07
 
 ### Added

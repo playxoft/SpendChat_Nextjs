@@ -12,7 +12,7 @@ export type AccountSummary = {
   /** Display name and picture; either may be missing. */
   name: string | null;
   image: string | null;
-  /** Their workspaces and the current one — the menu is where they switch. */
+  /** Their workspaces and the current one — switched from the sidebar's workspace menu. */
   workspaces: WorkspaceOption[];
   currentWorkspaceId: string;
 };
@@ -27,6 +27,11 @@ export function AccountProvider({
   children: ReactNode;
 }) {
   return <AccountContext.Provider value={account}>{children}</AccountContext.Provider>;
+}
+
+/** Who's signed in and their workspaces; null outside the app layout. */
+export function useAccount(): AccountSummary | null {
+  return useContext(AccountContext);
 }
 
 /**

@@ -174,7 +174,7 @@ export function LockBadge() {
  * (`upgradePageHref`) rather than opening the upgrade dialog over the form —
  * one popup on another reads as a dead end. A form in a dialog passes
  * `onNavigate` to close itself on the way, since a dialog kept by the layout
- * (the sidebar's, the account menu's) would otherwise stay open over the page.
+ * (the sidebar's workspace menu, for one) would otherwise stay open over the page.
  * A billing hold has no plan to go to, so its button still opens the dialog
  * that explains it.
  */

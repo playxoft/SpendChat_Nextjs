@@ -58,8 +58,8 @@ import { useLoadingOverlay } from "./loading-overlay";
 import { usePermissions } from "./permissions";
 import { usePlan } from "./upgrade-dialog";
 import { LimitTooltip, LockBadge, useAddLimits } from "./limit-lock";
+import { WorkspaceMenu } from "./workspace-switcher";
 import { Kbd } from "@/components/ui/kbd";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { reorderProfiles } from "@/actions/profiles";
 import { reorderSpaces } from "@/actions/spaces";
 import { useCollapsedSpaces } from "@/hooks/use-collapsed-spaces";
@@ -85,7 +85,7 @@ import {
   profileOrderAfterReorder,
   profileShortcut,
 } from "@/lib/sidebar-spaces";
-import { DEFAULT_SPACE_ICON, DEFAULT_WORKSPACE_ICON } from "@/lib/validation";
+import { DEFAULT_SPACE_ICON } from "@/lib/validation";
 import { addLock, type AddLock } from "@/lib/add-limits";
 import { cn } from "@/lib/utils";
 import type { Profile, WorkspaceRole } from "@/db/schema";
@@ -172,8 +172,7 @@ export function ProfileList({
 }: {
   profiles: P[];
   spaces: SidebarSpace[];
-  /** The current workspace, labelled above the Spaces heading — the switcher
-   *  lives in the account menu, so nothing else on screen says which one this is. */
+  /** The current workspace, named above the Spaces heading — its menu switches workspace. */
   workspace: SidebarWorkspace;
   /** `ui_prefs.sidebar.collapsedSpaces` — folded spaces, across every workspace. */
   collapsedSpaces: string[];
@@ -421,29 +420,10 @@ export function ProfileList({
             <ProfileShortcutBinding key={p.id} combo={profileShortcut(i)} onFire={() => go(p.id)} />
           ))}
 
-      {/* Which workspace this is: a label, not a control — switching is in the
-          account menu (or `g`). One line; the tooltip spells out a name the
-          sidebar cuts short. Not focusable, like the tag list's chips: a tab
-          stop that does nothing is worse than none, and the phone sheet would
-          focus it on open and pop the tooltip. The name is whole in the text,
-          so a screen reader hears all of it. */}
-      <div className="flex min-w-0 px-3">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="flex min-w-0 items-center gap-2 py-1 text-sm font-medium text-foreground">
-              <span aria-hidden className="shrink-0 text-base leading-none">
-                {workspace.icon ?? DEFAULT_WORKSPACE_ICON}
-              </span>
-              <span className="truncate">
-                <span className="sr-only">Workspace: </span>
-                {workspace.name}
-              </span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" align="start" sideOffset={4}>
-            {workspace.name}
-          </TooltipContent>
-        </Tooltip>
+      {/* Which workspace this is, and the way to another: the name with a `>`
+          opens the workspace menu (`WorkspaceMenu`; `g` opens the quick picker). */}
+      <div className="flex min-w-0 px-1.5">
+        <WorkspaceMenu workspace={workspace} onNavigate={onNavigate} />
       </div>
 
       {/* One height whatever sits on the right (add buttons, the selection, nothing), so the list never shifts. */}
