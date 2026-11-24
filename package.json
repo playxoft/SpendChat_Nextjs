@@ -104,8 +104,8 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.15",
-    "@neondatabase/serverless": "^1.2.0",
+    "@electric-sql/pglite": "^0.5.17",
+    "@neondatabase/serverless": "^1.2.1",
     "@tailwindcss/cli": "4.3.5",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22",
