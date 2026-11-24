@@ -64,7 +64,7 @@ export function AppTopbar({
       </div>
       <div className="flex items-center gap-1">
         {/* Spaces + profile switcher, to the left of the bulk-add button. The
-            workspace switcher is in the account menu (top right). */}
+            workspace's name at the top of the sheet switches workspace. */}
         <Sheet open={open} onOpenChange={setOpen}>
           {/* `data-tour`: the phone's stand-in for the sidebar's list on the product tour. */}
           <SheetTrigger asChild>

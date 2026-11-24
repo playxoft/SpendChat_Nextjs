@@ -139,7 +139,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "spaces",
     title: "Spaces and profiles",
-    body: "Keep different money apart, like your own, your family's or your shop's. Pick one profile to add to it. Pick a few to see them together.",
+    body: "Keep different money apart, like your own, your family's or your shop's. Pick one profile to add to it. Pick a few to see them together. Press the workspace name at the top to switch workspaces.",
     targets: ["spaces"],
     sides: ["right", "bottom"],
     align: "start",
@@ -188,7 +188,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     // it's introduced here, on the menu's button: where the menu is.
     id: "help",
     title: "Your menu",
-    body: "Press this button to open your menu. In it you can switch workspaces, see your plan, and find Settings and Trash.",
+    body: "Press this button to open your menu. In it you can see your plan, and find Settings and Trash.",
     targets: ["account-menu"],
     sides: ["bottom", "left"],
     hint: { text: "See all shortcuts with", combo: comboFor("global.shortcuts") },
