@@ -117,7 +117,9 @@ function DialogContent({
           <body>: Bitwarden's inline menu moves the last child in front of its
           own elements, one at a time, which swaps the pair — the backdrop
           then sits over the box, blurring it and taking every click, until a
-          reload. A click on the backdrop is still outside the box. */}
+          reload. A click on the backdrop is still outside the box.
+          Radix renders no Overlay for `modal={false}`, which would take the
+          box with it — a non-modal dialog needs its own Content outside. */}
       <DialogOverlay>
         <DialogPrimitive.Content
           data-slot="dialog-content"

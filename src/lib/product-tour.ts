@@ -139,7 +139,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "spaces",
     title: "Spaces and profiles",
-    body: "Keep different money apart, like your own, your family's or your shop's. Pick one profile to add to it. Pick a few to see them together. Press the workspace name at the top to switch workspaces.",
+    body: "Keep different money apart, like your own, your family's or your shop's. Pick one profile to add to it. Pick a few to see them together. Switch workspaces from the workspace name above your spaces.",
     targets: ["spaces"],
     sides: ["right", "bottom"],
     align: "start",

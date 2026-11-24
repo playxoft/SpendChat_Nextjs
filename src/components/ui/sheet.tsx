@@ -37,9 +37,12 @@ function SheetOverlay({
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
       // 200ms, the panel's: the panel sits inside this and leaves with it, so
-      // a shorter fade would cut its slide-out off halfway.
+      // a shorter fade would cut its slide-out off halfway. While it fades it
+      // lets taps through (Radix pins `pointer-events: auto` inline, hence the
+      // `!`): pick a profile in the phone's sheet and the page is tappable at
+      // once, not 200ms later.
       className={cn(
-        "fixed inset-0 z-50 bg-black/10 duration-200 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 z-50 bg-black/10 duration-200 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:pointer-events-none! data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
