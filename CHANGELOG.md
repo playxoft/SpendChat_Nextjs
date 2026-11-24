@@ -18,6 +18,15 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.51.1] — 2026-11-24
+
+### Fixed
+- **Popups no longer freeze, blurred, when a password manager is installed.** With Bitwarden's
+  autofill menu on the page (typing a password at sign-up, for one), a popup could open blurred
+  and stop responding until a reload: the sign-up terms box with the 13+ tick, the welcome
+  questions after it, and any other dialog, confirmation, side panel or file preview. Each
+  popup and its dimmed backdrop are now one piece, so the backdrop always stays behind it.
+
 ## [0.51.0] — 2026-11-07
 
 ### Added

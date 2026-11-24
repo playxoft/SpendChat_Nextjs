@@ -111,54 +111,62 @@ function DialogContent({
   const wasLayerOpenOnPointerDown = useLayerOpenOnPointerDown(closeOnOutsideClick)
   return (
     <DialogPortal>
-      <DialogOverlay />
-      <DialogPrimitive.Content
-        data-slot="dialog-content"
-        // By default an outside click doesn't dismiss — only the close button or
-        // an explicit action closes a dialog, so accidental clicks never lose
-        // work. Set closeOnOutsideClick to restore click-away. Escape always works.
-        //
-        // A dropdown opened *from inside* the dialog (a category or profile
-        // select, a date picker, an emoji picker) renders in its own portal, so
-        // Radix reports the click that dismisses it as a click outside the
-        // dialog too — and the dialog goes with it, taking the half-filled form
-        // along. One click dismisses one layer: if a dropdown was up when the
-        // pointer went down, that click belongs to it, not to us.
-        onPointerDownOutside={(event) => {
-          if (!closeOnOutsideClick || wasLayerOpenOnPointerDown.current)
-            event.preventDefault()
-          onPointerDownOutside?.(event)
-        }}
-        className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          // Never taller than the screen: a long form scrolls inside the box
-          // (with the slim bar every dialog gets, globals.css) instead of
-          // running off the top and bottom with its buttons out of reach.
-          "max-h-[calc(100dvh-2rem)] overflow-y-auto",
-          // Keep a long title clear of the close button. The button sits 8px
-          // in from the corner and is 28px wide, so it reaches 36px in; the
-          // padding's 16px plus 24px stops the title at 40px — a 4px gap —
-          // and a long title wraps instead of running under the X.
-          showCloseButton && "[&_[data-slot=dialog-title]]:pr-6",
-          className
-        )}
-        {...props}
-      >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close data-slot="dialog-close" asChild>
-            <Button
-              variant="ghost"
-              className="absolute top-2 right-2"
-              size="icon-sm"
-            >
-              <XIcon
-              />
-              <span className="sr-only">Close</span>
-            </Button>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
+      {/* The box lives *inside* its backdrop, so the dialog is one element in
+          <body>. As two siblings (Radix's default) their order is all that
+          puts the box above the backdrop, and password managers reorder
+          <body>: Bitwarden's inline menu moves the last child in front of its
+          own elements, one at a time, which swaps the pair — the backdrop
+          then sits over the box, blurring it and taking every click, until a
+          reload. A click on the backdrop is still outside the box. */}
+      <DialogOverlay>
+        <DialogPrimitive.Content
+          data-slot="dialog-content"
+          // By default an outside click doesn't dismiss — only the close button or
+          // an explicit action closes a dialog, so accidental clicks never lose
+          // work. Set closeOnOutsideClick to restore click-away. Escape always works.
+          //
+          // A dropdown opened *from inside* the dialog (a category or profile
+          // select, a date picker, an emoji picker) renders in its own portal, so
+          // Radix reports the click that dismisses it as a click outside the
+          // dialog too — and the dialog goes with it, taking the half-filled form
+          // along. One click dismisses one layer: if a dropdown was up when the
+          // pointer went down, that click belongs to it, not to us.
+          onPointerDownOutside={(event) => {
+            if (!closeOnOutsideClick || wasLayerOpenOnPointerDown.current)
+              event.preventDefault()
+            onPointerDownOutside?.(event)
+          }}
+          className={cn(
+            "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            // Never taller than the screen: a long form scrolls inside the box
+            // (with the slim bar every dialog gets, globals.css) instead of
+            // running off the top and bottom with its buttons out of reach.
+            "max-h-[calc(100dvh-2rem)] overflow-y-auto",
+            // Keep a long title clear of the close button. The button sits 8px
+            // in from the corner and is 28px wide, so it reaches 36px in; the
+            // padding's 16px plus 24px stops the title at 40px — a 4px gap —
+            // and a long title wraps instead of running under the X.
+            showCloseButton && "[&_[data-slot=dialog-title]]:pr-6",
+            className
+          )}
+          {...props}
+        >
+          {children}
+          {showCloseButton && (
+            <DialogPrimitive.Close data-slot="dialog-close" asChild>
+              <Button
+                variant="ghost"
+                className="absolute top-2 right-2"
+                size="icon-sm"
+              >
+                <XIcon
+                />
+                <span className="sr-only">Close</span>
+              </Button>
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Content>
+      </DialogOverlay>
     </DialogPortal>
   )
 }
